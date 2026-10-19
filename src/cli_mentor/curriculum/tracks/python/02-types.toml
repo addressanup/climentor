@@ -1,0 +1,107 @@
+format_version = 1
+id = "python.types"
+version = 1
+title = "Variables and types"
+track = "python"
+order = 2
+skills = ["python.variables.assignment", "python.types.basic", "python.strings.fstring"]
+prerequisites = ["python.expressions"]
+objectives = [
+  "Store values in variables with =",
+  "Recognise str, int, float, and bool",
+  "Build a string with an f-string",
+]
+risk = "runs_learner_code"
+workdir = "python/02-types"
+estimated_minutes = 15
+verifier = "python.types.v1"
+demonstration = """
+```python
+city = "Lisbon"        # str   (text, in quotes)
+year = 2026            # int   (whole number)
+temp = 21.5            # float (number with a decimal point)
+sunny = True           # bool  (True or False)
+line = f"{city} in {year}"   # f-string: puts values inside text
+print(type(temp))      # <class 'float'>
+```
+"""
+prediction = "What type is `\"42\"` (with quotes)? And `42` (without)?"
+prediction_answer = "str and int"
+instructions = """
+Open `~/cli-mentor-workspace/python/02-types/types_practice.py` and create:
+
+- `name`: your name as a str
+- `age`: a whole number (int)
+- `height_m`: a number with a decimal point (float)
+- `is_learning`: True or False (bool)
+- `summary`: an f-string that includes name and age
+
+Run `python3 types_practice.py` (you may add print lines), then `/check`.
+"""
+solution = "name = \"Ada\"\nage = 36\nheight_m = 1.65\nis_learning = True\nsummary = f\"{name} is {age}\""
+rubric = ["Each variable has the right type", "summary contains name and age"]
+transfer = [
+  "What happens if you write `age = \"36\"` and then `age + 1`?",
+  "How would you turn the string \"36\" into a number?",
+]
+
+[[vocabulary]]
+term = "variable"
+meaning = "A name that points to a value, created with =."
+
+[[vocabulary]]
+term = "type"
+meaning = "What kind of value something is. type(x) tells you."
+
+[[vocabulary]]
+term = "str"
+meaning = "string: text, written inside quotes."
+
+[[vocabulary]]
+term = "int"
+meaning = "integer: a whole number."
+
+[[vocabulary]]
+term = "float"
+meaning = "a number with a decimal point."
+
+[[vocabulary]]
+term = "bool"
+meaning = "boolean: True or False (capital first letter)."
+
+[[syntax]]
+example = "summary = f\"{name} is {age}\""
+parts = [
+  { token = "summary", meaning = "the variable name being created" },
+  { token = "=", meaning = "assignment: store the value on the right under the name on the left (not 'equals')" },
+  { token = "f", meaning = "makes this an f-string, so {...} parts are filled in" },
+  { token = "\"", meaning = "start/end of the text" },
+  { token = "{name}", meaning = "replaced by the value of the variable name" },
+]
+
+[[setup]]
+path = "types_practice.py"
+content = """
+# Create the variables described in the lesson below this line.
+"""
+
+[[hints]]
+level = 1
+text = "Text needs quotes. Numbers do not. A decimal point makes a float. True/False start with a capital letter."
+
+[[hints]]
+level = 2
+text = "Put an f right before the opening quote, and the variable names inside curly braces: f\"{name} ...\"."
+
+[[hints]]
+level = 3
+text = "Example: `name = \"Ada\"`, `age = 36`, `height_m = 1.65`, `is_learning = True`, `summary = f\"{name} is {age}\"`."
+
+[verifier_params]
+file = "types_practice.py"
+
+[verifier_params.variables]
+name = "str"
+age = "int"
+height_m = "float"
+is_learning = "bool"

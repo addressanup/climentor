@@ -105,9 +105,7 @@ def test_scrub_keys() -> None:
 
 def test_log_filter_masks_registered_secret() -> None:
     register_secret("custom-secret-value-xyz")
-    record = logging.LogRecord(
-        "cli_mentor", logging.INFO, __file__, 1, "using %s", ("custom-secret-value-xyz",), None
-    )
+    record = logging.LogRecord("cli_mentor", logging.INFO, __file__, 1, "using %s", ("custom-secret-value-xyz",), None)
     ScrubFilter().filter(record)
     assert "custom-secret-value-xyz" not in record.getMessage()
 
@@ -144,9 +142,7 @@ def test_fts_search(tmp_path: Path) -> None:
         "INSERT INTO memory_items(category, text, provenance, status, created_at, updated_at) "
         "VALUES ('note', 'prefers pipelines explained symbol by symbol', 'user_stated', 'confirmed', 0, 0)"
     )
-    rows = store.conn.execute(
-        "SELECT rowid FROM memory_fts WHERE memory_fts MATCH 'pipelines'"
-    ).fetchall()
+    rows = store.conn.execute("SELECT rowid FROM memory_fts WHERE memory_fts MATCH 'pipelines'").fetchall()
     assert len(rows) == 1
 
 

@@ -93,9 +93,7 @@ async def test_reconnect_after_control_client_dies(tmux: Tmux) -> None:
         first_epoch = sink.items[0][0]
         assert obs.client is not None and obs.client._proc is not None
         obs.client._proc.kill()
-        await wait_for(
-            lambda: any(s.reason == "reconnect" for s in sink.of(TmuxSnapshot)), timeout=10
-        )
+        await wait_for(lambda: any(s.reason == "reconnect" for s in sink.of(TmuxSnapshot)), timeout=10)
         statuses = [s.status for s in sink.of(SourceStatusChanged)]
         assert "disconnected" in statuses and statuses.count("connected") == 2
         assert sink.items[-1][0] != first_epoch
@@ -147,10 +145,7 @@ async def test_output_burst_is_captured(tmux: Tmux) -> None:
     try:
         tmux.send_keys(shell, "seq 1 20000; echo burst-done", "Enter")
         await wait_for(
-            lambda: (
-                "burst-done\r\n" in sink.output_for(shell)
-                or any(s.reason == "gap" for s in sink.of(TmuxSnapshot))
-            ),
+            lambda: "burst-done\r\n" in sink.output_for(shell) or any(s.reason == "gap" for s in sink.of(TmuxSnapshot)),
             timeout=20,
         )
         text = sink.output_for(shell)

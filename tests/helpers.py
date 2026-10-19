@@ -19,9 +19,7 @@ def private_tmux() -> Tmux:
     return Tmux(unique_socket(), config_file="/dev/null")
 
 
-async def wait_for(
-    predicate: Callable[[], object], timeout: float = 10.0, interval: float = 0.05
-) -> object:
+async def wait_for(predicate: Callable[[], object], timeout: float = 10.0, interval: float = 0.05) -> object:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         value = predicate()

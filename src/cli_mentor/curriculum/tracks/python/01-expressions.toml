@@ -1,0 +1,94 @@
+format_version = 1
+id = "python.expressions"
+version = 1
+title = "Python expressions and print"
+track = "python"
+order = 1
+skills = ["python.expressions.arithmetic", "python.builtins.print"]
+prerequisites = ["cli.navigation", "nvim.modes"]
+objectives = [
+  "Write arithmetic expressions (+, //, %, **)",
+  "Show values with print()",
+  "Run a Python file from the shell",
+]
+risk = "runs_learner_code"
+workdir = "python/01-expressions"
+estimated_minutes = 15
+verifier = "python.expressions.v1"
+demonstration = """
+```python
+print(3 + 4)     # 7
+print(9 // 4)    # 2   floor division: divide, then drop the fraction
+print(9 % 4)     # 1   remainder after dividing
+print(3 ** 2)    # 9   power: 3 * 3
+```
+Run a file from the shell with: `python3 expressions.py`
+"""
+prediction = "What does `print(7 // 2)` show? And `print(7 % 2)`?"
+prediction_answer = "3 and 1"
+instructions = """
+1. Open `~/cli-mentor-workspace/python/01-expressions/expressions.py` in Neovim.
+2. Below the comments, write four `print(...)` lines, one per comment.
+3. Save, then in the shell pane run: `python3 expressions.py`
+4. When the four numbers look right, type `/check`. (This check runs your code.)
+"""
+solution = "print(7 + 5)\nprint(7 // 2)\nprint(7 % 2)\nprint(2 ** 10)"
+rubric = ["Uses //, %, **", "Prints 12, 3, 1, 1024 in order"]
+transfer = [
+  "What does `-7 // 2` give, and why?",
+  "How would you check whether a number is even using %?",
+]
+
+[[vocabulary]]
+term = "expression"
+meaning = "A piece of code that produces a value, like 7 + 5."
+
+[[vocabulary]]
+term = "operator"
+meaning = "A symbol that combines values: + - * / // % **."
+
+[[vocabulary]]
+term = "function call"
+meaning = "A name followed by parentheses, like print(...). It runs that function with what is inside."
+
+[[syntax]]
+example = "print(7 // 2)"
+parts = [
+  { token = "print", meaning = "a built-in function that shows a value on the screen" },
+  { token = "(", meaning = "start of the function's input (its argument)" },
+  { token = "7 // 2", meaning = "the expression to compute first" },
+  { token = "//", meaning = "floor division: divide and round down to a whole number" },
+  { token = ")", meaning = "end of the argument" },
+]
+
+[[syntax]]
+example = "2 ** 10"
+parts = [
+  { token = "**", meaning = "power: 2 multiplied by itself 10 times" },
+]
+
+[[setup]]
+path = "expressions.py"
+content = """
+# Fill in one print(...) line for each comment.
+# 1. Print the result of 7 plus 5.
+# 2. Print 7 divided by 2 using floor division (//).
+# 3. Print the remainder of 7 divided by 2 (%).
+# 4. Print 2 to the power of 10 (**).
+"""
+
+[[hints]]
+level = 1
+text = "Each line looks like `print(<expression>)`. Lines starting with # are comments and are ignored."
+
+[[hints]]
+level = 2
+text = "The operators you need are `+`, `//`, `%`, and `**`. Run the file after each line to see what it prints."
+
+[[hints]]
+level = 3
+text = "Line 2, for example, is `print(7 // 2)`."
+
+[verifier_params]
+file = "expressions.py"
+expected_output = ["12", "3", "1", "1024"]

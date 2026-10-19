@@ -71,11 +71,7 @@ class ControlParser:
         line = line.rstrip(b"\n").removesuffix(b"\r")
         if self._block is not None:
             match = _BLOCK.match(line)
-            if (
-                match
-                and match.group(1) in (b"end", b"error")
-                and int(match.group(3)) == self._block[0]
-            ):
+            if match and match.group(1) in (b"end", b"error") and int(match.group(3)) == self._block[0]:
                 number, lines = self._block
                 self._block = None
                 return Response(
@@ -192,9 +188,7 @@ class TmuxControlClient:
         return await asyncio.wait_for(future, timeout)
 
     async def capture(self, pane_id: str, history: int = 200) -> list[str]:
-        response = await self.command(
-            "capture-pane", "-p", "-J", "-t", pane_id, "-S", f"-{history}"
-        )
+        response = await self.command("capture-pane", "-p", "-J", "-t", pane_id, "-S", f"-{history}")
         if not response.ok:
             raise RuntimeError(f"capture-pane failed: {' '.join(response.lines)}")
         lines = list(response.lines)

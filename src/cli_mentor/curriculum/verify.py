@@ -1,0 +1,124 @@
+"""Trusted verification framework.
+
+Verifiers are Python classes registered by id. A lesson file can only *name*
+a verifier and pass data parameters; it cannot add code or commands.
+A model's opinion is never a verification result.
+"""
+
+from __future__ import annotations
+
+import os
+import time
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, ClassVar, Literal, Protocol
+
+from ..observe.workspace import WorkspaceScope
+from ..state.projection import CommandRecord, WorkspaceState
+from .runner import HostRunner
+
+Evidence = Literal[
+    "filesystem",
+    "shell_record",
+    "editor_state",
+    "editor_events",
+    "executed_code",
+    "learner_answer",
+    "static_analysis",
+]
+Technique = Literal["verified", "unverified", "not_applicable"]
+
+
+@dataclass(frozen=True)
+class Check:
+    name: str
+    passed: bool
+    detail: str
+    evidence: Evidence
+
+
+@dataclass
+class VerificationResult:
+    verifier: str
+    passed: bool
+    checks: list[Check]
+    technique: Technique = "not_applicable"
+    technique_detail: str = ""
+    executed_learner_code: bool = False
+    at: float = field(default_factory=time.time)
+
+    def summary(self) -> str:
+        head = "PASSED" if self.passed else "NOT YET"
+        lines = [f"**Check result: {head}** (trusted checker `{self.verifier}`)"]
+        for c in self.checks:
+            mark = "[PASS]" if c.passed else "[FAIL]"
+            lines.append(f"- {mark} {c.name} — {c.detail} _(evidence: {c.evidence})_")
+        if self.technique != "not_applicable":
+            lines.append(f"- Technique: **{self.technique}** — {self.technique_detail}")
+        if self.executed_learner_code:
+            lines.append("- Your code was run on this Mac (host execution, not a sandbox).")
+        return "\n".join(lines)
+
+
+@dataclass
+class VerifyContext:
+    workdir: Path
+    scope: WorkspaceScope
+    state: WorkspaceState
+    params: dict[str, Any]
+    attempt_started_at: float
+    answer: str | None = None
+    runner: HostRunner | None = None
+    telemetry_enabled: bool = False
+    exercise_id: str = ""
+
+    def commands_since_start(self) -> list[CommandRecord]:
+        return [
+            c for c in self.state.commands if c.finished_at is not None and c.finished_at >= self.attempt_started_at - 1
+        ]
+
+    def realpath(self, p: str | Path) -> str:
+        return os.path.realpath(p)
+
+    def read(self, relative: str) -> str | None:
+        return self.scope.read_text(self.workdir / relative).text
+
+
+class Verifier(Protocol):
+    id: ClassVar[str]
+    executes_learner_code: ClassVar[bool]
+
+    async def verify(self, ctx: VerifyContext) -> VerificationResult: ...
+
+
+REGISTRY: dict[str, Verifier] = {}
+GENERATORS: dict[str, Callable[[dict[str, Any]], str]] = {}
+
+
+def register(cls: type[Any]) -> type[Any]:
+    instance = cls()
+    REGISTRY[instance.id] = instance
+    return cls
+
+
+def generator(
+    name: str,
+) -> Callable[[Callable[[dict[str, Any]], str]], Callable[[dict[str, Any]], str]]:
+    def deco(fn: Callable[[dict[str, Any]], str]) -> Callable[[dict[str, Any]], str]:
+        GENERATORS[name] = fn
+        return fn
+
+    return deco
+
+
+def get_verifier(verifier_id: str) -> Verifier:
+    load_adapters()
+    try:
+        return REGISTRY[verifier_id]
+    except KeyError:
+        raise KeyError(f"unknown verifier {verifier_id!r}") from None
+
+
+def load_adapters() -> None:
+    from .adapters import cli, nvim, python  # noqa: F401  (registers verifiers)

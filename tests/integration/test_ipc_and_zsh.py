@@ -60,12 +60,7 @@ async def test_ipc_auth_and_permissions(short_tmp: Path) -> None:
         assert await r.read() == b""
         # Kind not allowed for clients.
         r, w = await _open(sock)
-        w.write(
-            json.dumps(
-                {"v": 1, "token": token, "kind": "verifier", "id": "x", "epoch": "e"}
-            ).encode()
-            + b"\n"
-        )
+        w.write(json.dumps({"v": 1, "token": token, "kind": "verifier", "id": "x", "epoch": "e"}).encode() + b"\n")
         await w.drain()
         assert await r.read() == b""
         assert server.rejected == 3
@@ -73,12 +68,7 @@ async def test_ipc_auth_and_permissions(short_tmp: Path) -> None:
 
         # Correct token: delivered with identity from the hello.
         r, w = await _open(sock)
-        w.write(
-            json.dumps(
-                {"v": 1, "token": token, "kind": "nvim", "id": "nvim-9", "epoch": "e1"}
-            ).encode()
-            + b"\n"
-        )
+        w.write(json.dumps({"v": 1, "token": token, "kind": "nvim", "id": "nvim-9", "epoch": "e1"}).encode() + b"\n")
         await w.drain()
         reply = json.loads(await r.readline())
         assert reply["ok"] is True
@@ -132,9 +122,7 @@ async def test_zsh_hooks_report_commands(short_tmp: Path, tmp_path: Path) -> Non
     tmux = private_tmux()
     home = make_home(tmp_path)
     zdot = prepare_zdotdir(run)
-    env = shell_environment(
-        zdotdir=zdot, socket_path=sock, token_file=token_file, nvim_rtp=None, user_zdotdir=None
-    )
+    env = shell_environment(zdotdir=zdot, socket_path=sock, token_file=token_file, nvim_rtp=None, user_zdotdir=None)
     env["HOME"] = str(home)
     env_args: list[str] = []
     for key, value in env.items():
@@ -168,21 +156,12 @@ async def test_zsh_hooks_report_commands(short_tmp: Path, tmp_path: Path) -> Non
         seqs = [m["seq"] for _i, m in got.messages]
         assert seqs == sorted(seqs)
         # The token is not in the shell's environment.
-        tmux.send_keys(
-            pane, "env | grep -c CLI_MENTOR_TOKEN > " + str(tmp_path / "envcheck.txt"), "Enter"
-        )
-        await wait_for(
-            lambda: (
-                (tmp_path / "envcheck.txt").exists()
-                and (tmp_path / "envcheck.txt").read_text().strip()
-            )
-        )
+        tmux.send_keys(pane, "env | grep -c CLI_MENTOR_TOKEN > " + str(tmp_path / "envcheck.txt"), "Enter")
+        await wait_for(lambda: (tmp_path / "envcheck.txt").exists() and (tmp_path / "envcheck.txt").read_text().strip())
         assert (tmp_path / "envcheck.txt").read_text().strip() == "0"
         # The learner's normal ZDOTDIR behaviour is restored for child shells.
         tmux.send_keys(pane, "print -r -- ${ZDOTDIR:-unset} > " + str(tmp_path / "zd.txt"), "Enter")
-        await wait_for(
-            lambda: (tmp_path / "zd.txt").exists() and (tmp_path / "zd.txt").read_text().strip()
-        )
+        await wait_for(lambda: (tmp_path / "zd.txt").exists() and (tmp_path / "zd.txt").read_text().strip())
         assert (tmp_path / "zd.txt").read_text().strip() == "unset"
     finally:
         tmux.kill_server()
@@ -201,9 +180,7 @@ async def test_zsh_hooks_survive_missing_server(short_tmp: Path, tmp_path: Path)
     tmux = private_tmux()
     home = make_home(tmp_path)
     zdot = prepare_zdotdir(run)
-    env = shell_environment(
-        zdotdir=zdot, socket_path=sock, token_file=token_file, nvim_rtp=None, user_zdotdir=None
-    )
+    env = shell_environment(zdotdir=zdot, socket_path=sock, token_file=token_file, nvim_rtp=None, user_zdotdir=None)
     env["HOME"] = str(home)
     env_args = [a for k, v in env.items() for a in ("-e", f"{k}={v}")]
     got = Collector()

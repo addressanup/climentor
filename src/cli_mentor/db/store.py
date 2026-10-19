@@ -37,9 +37,7 @@ class Store:
             self.path.parent.mkdir(parents=True, exist_ok=True)
             if not self.path.exists():
                 os.close(os.open(self.path, os.O_CREAT | os.O_WRONLY, 0o600))
-        self.conn = sqlite3.connect(
-            str(path), isolation_level=None, check_same_thread=False, timeout=5.0
-        )
+        self.conn = sqlite3.connect(str(path), isolation_level=None, check_same_thread=False, timeout=5.0)
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA foreign_keys = ON")
         self.conn.execute("PRAGMA busy_timeout = 5000")
@@ -79,9 +77,7 @@ class Store:
             # executescript() commits implicitly, so wrap the script ourselves.
             try:
                 self.conn.executescript(
-                    "BEGIN IMMEDIATE;\n"
-                    + sql
-                    + f"\nINSERT INTO schema_migrations(version, name, applied_at) "
+                    "BEGIN IMMEDIATE;\n" + sql + f"\nINSERT INTO schema_migrations(version, name, applied_at) "
                     f"VALUES ({version}, '{name}', {time.time()});\nCOMMIT;"
                 )
             except sqlite3.Error:

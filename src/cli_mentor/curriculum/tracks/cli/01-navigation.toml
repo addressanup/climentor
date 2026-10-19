@@ -1,0 +1,139 @@
+format_version = 1
+id = "cli.navigation"
+version = 1
+title = "Find the treasure: moving around folders"
+track = "cli"
+order = 1
+skills = ["cli.navigate.pwd", "cli.navigate.ls", "cli.navigate.cd", "cli.read.cat"]
+prerequisites = []
+objectives = [
+  "Know which folder your shell is in (pwd)",
+  "List what is inside a folder (ls)",
+  "Move into and out of folders (cd, cd ..)",
+  "Print a file's text (cat)",
+]
+risk = "writes_workspace"
+workdir = "cli/01-navigation"
+estimated_minutes = 10
+verifier = "cli.navigation.v1"
+demonstration = """
+```
+$ pwd
+/Users/you/cli-mentor-workspace/cli/01-navigation
+$ ls
+maze
+$ cd maze
+$ ls
+east  north  south
+$ cd ..
+$ pwd
+/Users/you/cli-mentor-workspace/cli/01-navigation
+```
+"""
+prediction = "You are in the exercise folder. You run `cd maze/south` and then `pwd`. What will the last word of the printed path be?"
+prediction_answer = "south"
+instructions = """
+1. In the shell pane (bottom right), go to the exercise folder:
+   `cd ~/cli-mentor-workspace/cli/01-navigation`
+2. Somewhere under `maze` there is a file called `treasure.txt`.
+   Find it using only `pwd`, `ls`, `cd` and `cd ..`.
+3. When you are inside the folder that holds it, print it with `cat treasure.txt`.
+4. Type `/check <secret word>` here in the tutor pane.
+"""
+solution = "cd maze/south/cellar && cat treasure.txt"
+rubric = [
+  "Used cd to enter the right folder (observed shell record)",
+  "Printed the file with cat (observed shell record)",
+  "Reported the secret word",
+]
+transfer = [
+  "If `pwd` prints /a/b/c, what does it print after `cd ../..`?",
+  "How would you list the contents of a folder without moving into it?",
+]
+
+[[vocabulary]]
+term = "shell"
+meaning = "The program that reads the commands you type and runs them. Yours is zsh."
+
+[[vocabulary]]
+term = "command"
+meaning = "A line you type and run by pressing Enter. The first word is the program's name."
+
+[[vocabulary]]
+term = "argument"
+meaning = "Extra words after the command name that tell it what to work on."
+
+[[vocabulary]]
+term = "directory"
+meaning = "Another word for folder."
+
+[[vocabulary]]
+term = "working directory"
+meaning = "The folder your shell is 'standing in' right now. Commands use it as their starting point."
+
+[[vocabulary]]
+term = "path"
+meaning = "Directions to a file or folder, with folder names separated by /."
+
+[[syntax]]
+example = "pwd"
+parts = [{ token = "pwd", meaning = "print working directory: shows the full path of the folder you are in" }]
+
+[[syntax]]
+example = "ls maze"
+parts = [
+  { token = "ls", meaning = "list: show the names inside a folder" },
+  { token = "maze", meaning = "an argument: which folder to list. Without it, ls lists the current folder" },
+]
+
+[[syntax]]
+example = "cd maze/south"
+parts = [
+  { token = "cd", meaning = "change directory: move your shell into another folder" },
+  { token = "maze", meaning = "first folder to go into" },
+  { token = "/", meaning = "separator between folder names (read it as \"inside of\")" },
+  { token = "south", meaning = "a folder inside maze" },
+]
+
+[[syntax]]
+example = "cd .."
+parts = [
+  { token = "cd", meaning = "change directory" },
+  { token = "..", meaning = "two dots mean the parent folder: one level up" },
+]
+
+[[syntax]]
+example = "cat notes.txt"
+parts = [
+  { token = "cat", meaning = "print the text of a file to the screen (short for concatenate)" },
+  { token = "notes.txt", meaning = "the file to print" },
+]
+
+[[setup]]
+path = "maze/north/notes.txt"
+content = "Nothing here. Try another direction.\n"
+
+[[setup]]
+path = "maze/east/readme.txt"
+content = "Cold. Not here either.\n"
+
+[[setup]]
+path = "maze/south/cellar/treasure.txt"
+content = "You found it! The secret word is: lantern\n"
+
+[[hints]]
+level = 1
+text = "Start with `pwd` to see where you are, then `ls` to see what is in this folder. Folders can hold more folders."
+
+[[hints]]
+level = 2
+text = "Run `cd maze`, then `ls`. Visit each direction folder with `cd <name>`, run `ls`, and use `cd ..` to come back up."
+
+[[hints]]
+level = 3
+text = "The treasure is in maze/south/cellar. From the exercise folder run `cd maze/south/cellar`, then `cat treasure.txt`."
+
+[verifier_params]
+target_dir = "maze/south/cellar"
+target_file = "treasure.txt"
+secret = "lantern"

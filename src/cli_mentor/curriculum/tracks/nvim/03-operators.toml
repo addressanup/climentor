@@ -1,0 +1,91 @@
+format_version = 1
+id = "nvim.operators"
+version = 1
+title = "Operator + motion: dw and ciw"
+track = "nvim"
+order = 3
+skills = ["nvim.operators.delete", "nvim.operators.change", "nvim.textobjects.word"]
+prerequisites = ["nvim.modes", "nvim.motions"]
+objectives = [
+  "Combine an operator with a motion (dw)",
+  "Use a text object to change a whole word (ciw)",
+]
+risk = "writes_workspace"
+telemetry = "nvim_normal_commands"
+workdir = "nvim/03-operators"
+estimated_minutes = 15
+verifier = "nvim.operators.v1"
+demonstration = """
+An *operator* says what to do; a *motion* or *text object* says where.
+
+```
+dw    ← d (delete) + w (to the start of the next word): deletes one word and its space
+ciw   ← c (change) + iw (inner word): deletes the word under the cursor and starts Insert mode
+```
+After `ciw` you type the new word and press Esc.
+"""
+prediction = "The cursor is on the `e` in `the extra word`. What text is left after `dw`?"
+prediction_answer = "the word"
+instructions = """
+1. Open the file: Esc, then `:e ~/cli-mentor-workspace/nvim/03-operators/operators.txt` and Enter.
+2. Line 2 says `delete the extra extra word`. Put the cursor on the first `extra` and press `dw`.
+3. Line 3 says `I like teh color blue`. Put the cursor anywhere on `teh`, press `ciw`, type `the`, press Esc.
+4. Save with `:w` and Enter, then type `/check`.
+"""
+solution = "2G w w dw, 3G w w ciw the <Esc>, :w"
+rubric = ["Line 2 fixed", "Line 3 fixed", "Saved", "dw and ciw used (only with telemetry)"]
+transfer = [
+  "What would `d$` delete?",
+  "How would you change the text inside quotes? (hint: i and a quote character)",
+]
+
+[[vocabulary]]
+term = "operator"
+meaning = "A Normal-mode command that acts on text: d (delete), c (change), y (yank = copy)."
+
+[[vocabulary]]
+term = "text object"
+meaning = "A way to select a piece of text by its shape, like iw (inner word) or i\" (inside quotes)."
+
+[[syntax]]
+example = "dw"
+parts = [
+  { token = "d", meaning = "delete operator: waits for a motion to know how much" },
+  { token = "w", meaning = "motion: up to the start of the next word" },
+]
+
+[[syntax]]
+example = "ciw"
+parts = [
+  { token = "c", meaning = "change operator: delete, then enter Insert mode" },
+  { token = "i", meaning = "inner: just the thing itself, without surrounding space" },
+  { token = "w", meaning = "word: the word under the cursor" },
+]
+
+[[setup]]
+path = "operators.txt"
+content = """
+Fix these lines using operators.
+delete the extra extra word
+I like teh color blue
+"""
+
+[[hints]]
+level = 1
+text = "Operator first, then where: `d` then a motion. Put the cursor at the START of the word you want gone."
+
+[[hints]]
+level = 2
+text = "For line 3, the cursor can be anywhere inside `teh`. `ciw` replaces the whole word."
+
+[[hints]]
+level = 3
+text = "Line 2: `2G`, `2w`, `dw`. Line 3: `3G`, `2w`, `ciw`, type `the`, Esc. Then `:w`."
+
+[verifier_params]
+file = "operators.txt"
+required_commands = ["dw", "ciw"]
+
+[verifier_params.expected_lines]
+"2" = "delete the extra word"
+"3" = "I like the color blue"

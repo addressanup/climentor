@@ -1,0 +1,103 @@
+format_version = 1
+id = "nvim.motions"
+version = 1
+title = "Jump with motions"
+track = "nvim"
+order = 2
+skills = ["nvim.motions.lines", "nvim.motions.words", "nvim.motions.search"]
+prerequisites = ["nvim.modes"]
+objectives = [
+  "Jump to a line number (5G or :5)",
+  "Move by words (w, b, e)",
+  "Find a character or word (f, /)",
+]
+risk = "writes_workspace"
+telemetry = "nvim_normal_commands"
+workdir = "nvim/02-motions"
+estimated_minutes = 10
+verifier = "nvim.motions.v1"
+demonstration = """
+```
+5G        ← go to line 5   (or type :5 and Enter)
+w         ← jump forward to the start of the next word
+b         ← jump back to the start of the word
+e         ← jump to the end of the word
+fT        ← jump forward to the next T on this line
+/TARGET   ← search forward for TARGET, then press Enter
+```
+"""
+prediction = "Your cursor is on the first letter of `quick` in `the quick brown fox`. You press `w` twice. Which word is the cursor on?"
+prediction_answer = "fox"
+instructions = """
+1. Open the file: Esc, then `:e ~/cli-mentor-workspace/nvim/02-motions/motions.txt` and Enter.
+2. Using motions (not the arrow keys), put the cursor anywhere on the word `TARGET` on line 5.
+   Try `5G`, then `w` a few times. Or try `/TARGET` and Enter.
+3. Leave the cursor there and type `/check` in the tutor pane.
+"""
+solution = "5G then /TARGET<Enter> (or w repeatedly)"
+rubric = ["Cursor on TARGET", "Used word or search motions (only with telemetry)"]
+transfer = [
+  "Which motion would take you to the last line of a file?",
+  "How is `e` different from `w`?",
+]
+
+[[vocabulary]]
+term = "motion"
+meaning = "A Normal-mode command that moves the cursor."
+
+[[vocabulary]]
+term = "word"
+meaning = "To Neovim, a run of letters, digits, and underscores (punctuation counts as its own word)."
+
+[[vocabulary]]
+term = "count"
+meaning = "A number typed before a command to repeat it or choose a target, like 5G or 3w."
+
+[[syntax]]
+example = "5G"
+parts = [
+  { token = "5", meaning = "a count: here it means line number 5" },
+  { token = "G", meaning = "go to line (capital G). Without a count it goes to the last line" },
+]
+
+[[syntax]]
+example = "/TARGET"
+parts = [
+  { token = "/", meaning = "start a forward search; the bottom line shows what you type" },
+  { token = "TARGET", meaning = "the text to find. Press Enter to jump; n jumps to the next match" },
+]
+
+[[syntax]]
+example = "fT"
+parts = [
+  { token = "f", meaning = "find: jump to the next occurrence of a character on this line" },
+  { token = "T", meaning = "the character to find" },
+]
+
+[[setup]]
+path = "motions.txt"
+content = """
+Line one: motions move the cursor.
+Line two: w jumps to the next word.
+Line three: b jumps back a word.
+Line four: e jumps to the end of a word.
+Line five: the quick brown fox jumps over the TARGET dog.
+Line six: you made it.
+"""
+
+[[hints]]
+level = 1
+text = "First get to line 5. A number followed by capital G jumps to that line."
+
+[[hints]]
+level = 2
+text = "On line 5, press w repeatedly and watch the cursor jump word by word. Or search with / and the word."
+
+[[hints]]
+level = 3
+text = "Press Esc, then `5G`, then `/TARGET` and Enter. Then type `/check`."
+
+[verifier_params]
+file = "motions.txt"
+line = 5
+word = "TARGET"

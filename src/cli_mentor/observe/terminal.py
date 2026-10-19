@@ -159,9 +159,7 @@ class TerminalObserver:
 
     async def _list_panes(self) -> list[PaneState]:
         assert self.client is not None
-        response = await self.client.command(
-            "list-panes", "-s", "-t", f"={self.session}", "-F", PANE_FORMAT
-        )
+        response = await self.client.command("list-panes", "-s", "-t", f"={self.session}", "-F", PANE_FORMAT)
         result: list[PaneState] = []
         for line in response.lines:
             parts = line.split("\t")

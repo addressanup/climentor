@@ -1,0 +1,106 @@
+format_version = 1
+id = "cli.files"
+version = 1
+title = "Tidy the desk: making, copying, moving, removing"
+track = "cli"
+order = 2
+skills = ["cli.files.mkdir", "cli.files.cp", "cli.files.mv", "cli.files.rm_safe"]
+prerequisites = ["cli.navigation"]
+objectives = [
+  "Make a folder (mkdir)",
+  "Copy a file (cp) and know the original stays",
+  "Rename or move a file (mv)",
+  "Delete a file carefully (rm -i)",
+]
+risk = "writes_workspace"
+workdir = "cli/02-files"
+estimated_minutes = 15
+verifier = "cli.files.v1"
+demonstration = """
+```
+$ mkdir box            # make a folder called box
+$ cp a.txt box/a.txt   # copy: now there are two a.txt files
+$ mv b.txt c.txt       # rename b.txt to c.txt (b.txt is gone)
+$ rm -i c.txt          # ask before deleting
+remove c.txt? y
+```
+"""
+prediction = "You run `cp a.txt b.txt` in a folder that only had a.txt. How many files are there now: one or two?"
+prediction_answer = "two"
+instructions = """
+Work in `~/cli-mentor-workspace/cli/02-files`. There is a folder called `desk`.
+
+1. Make a folder `desk/notes`.
+2. Copy `desk/draft.txt` to `desk/notes/final.txt` (keep the original).
+3. Rename `desk/old-name.txt` to `desk/archive.txt`.
+4. Delete `desk/junk.tmp` using `rm -i` and answer `y`.
+
+Then type `/check`.
+"""
+solution = "mkdir desk/notes && cp desk/draft.txt desk/notes/final.txt && mv desk/old-name.txt desk/archive.txt && rm -i desk/junk.tmp"
+rubric = ["Folder created", "Copy keeps the original", "Rename leaves no old file", "junk.tmp removed, ideally with rm -i"]
+transfer = [
+  "What is the difference between `cp` and `mv`?",
+  "Why is `rm -i` a good habit when you are learning?",
+]
+
+[[vocabulary]]
+term = "mkdir"
+meaning = "make directory: create a new, empty folder."
+
+[[vocabulary]]
+term = "cp"
+meaning = "copy: make a second file with the same contents. The original stays."
+
+[[vocabulary]]
+term = "mv"
+meaning = "move: move a file to a new place or a new name. The old name disappears."
+
+[[vocabulary]]
+term = "rm"
+meaning = "remove: delete a file. There is no Trash and no undo."
+
+[[vocabulary]]
+term = "flag"
+meaning = "An option that starts with - and changes how a command behaves, like -i."
+
+[[syntax]]
+example = "cp desk/draft.txt desk/notes/final.txt"
+parts = [
+  { token = "cp", meaning = "the copy command" },
+  { token = "desk/draft.txt", meaning = "first argument: the source (what to copy)" },
+  { token = "desk/notes/final.txt", meaning = "second argument: the destination (the new copy's path and name)" },
+]
+
+[[syntax]]
+example = "rm -i desk/junk.tmp"
+parts = [
+  { token = "rm", meaning = "the remove (delete) command" },
+  { token = "-i", meaning = "interactive flag: ask 'remove ...?' and wait for y or n" },
+  { token = "desk/junk.tmp", meaning = "the file to delete" },
+]
+note = "Commands read arguments in order. For cp and mv: first the source, then the destination."
+
+[[setup]]
+path = "desk/draft.txt"
+content = "My first draft.\n"
+
+[[setup]]
+path = "desk/old-name.txt"
+content = "rename me\n"
+
+[[setup]]
+path = "desk/junk.tmp"
+content = "delete me\n"
+
+[[hints]]
+level = 1
+text = "Do one step at a time and run `ls desk` after each step to see what changed."
+
+[[hints]]
+level = 2
+text = "The pattern is `command source destination`. Folders must exist before you copy into them."
+
+[[hints]]
+level = 3
+text = "`mkdir desk/notes`, then `cp desk/draft.txt desk/notes/final.txt`, then `mv desk/old-name.txt desk/archive.txt`, then `rm -i desk/junk.tmp`."

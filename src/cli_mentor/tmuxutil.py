@@ -74,9 +74,7 @@ class Tmux:
         return proc.stdout
 
     def server_running(self) -> bool:
-        proc = subprocess.run(
-            self.argv("list-sessions"), capture_output=True, text=True, env=clean_env()
-        )
+        proc = subprocess.run(self.argv("list-sessions"), capture_output=True, text=True, env=clean_env())
         return proc.returncode == 0
 
     def sessions(self) -> list[str]:

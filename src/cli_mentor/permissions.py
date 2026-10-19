@@ -40,8 +40,7 @@ DESCRIPTIONS: dict[Capability, str] = {
     Capability.OBSERVE_EDITOR: "See Neovim buffers (including unsaved edits) in approved folders",
     Capability.READ_FILES: "Read files inside approved folders",
     Capability.RUN_CHECKS: "Run trusted checks that read files and observed records",
-    Capability.RUN_LEARNER_CODE: "Run YOUR code on this Mac to check it (host execution, "
-    "not a sandbox)",
+    Capability.RUN_LEARNER_CODE: "Run YOUR code on this Mac to check it (host execution, not a sandbox)",
     Capability.MODIFY_FILES: "Create or remove exercise files inside approved folders",
     Capability.RUN_SHELL: "Run shell commands (not available to the tutor in this version)",
     Capability.MUTATE_DATABASE: "Change databases (no current exercise needs this)",
@@ -97,9 +96,7 @@ def _within(child: str, parent: str) -> bool:
 
 
 class PermissionManager:
-    def __init__(
-        self, store: Store, session_id: str, clock: Callable[[], float] = time.time
-    ) -> None:
+    def __init__(self, store: Store, session_id: str, clock: Callable[[], float] = time.time) -> None:
         self.store = store
         self.session_id = session_id
         self.clock = clock
@@ -138,9 +135,7 @@ class PermissionManager:
             return Decision(True, f"granted ({grant.scope.value})", grant.id)
         return Decision(False, f"no grant for {capability.value}" + (f" on {res}" if res else ""))
 
-    def grant(
-        self, capability: Capability, scope: Scope, resource: str | Path | None = None
-    ) -> int:
+    def grant(self, capability: Capability, scope: Scope, resource: str | Path | None = None) -> int:
         if capability in NEVER_GRANTABLE:
             raise PermissionError_(f"{capability.value} cannot be granted in this version")
         res = str(resource) if resource is not None else None
@@ -150,8 +145,7 @@ class PermissionManager:
             res = os.path.realpath(res)
         with self.store.tx() as conn:
             cur = conn.execute(
-                "INSERT INTO permissions(capability, scope, resource, session_id, granted_at) "
-                "VALUES (?, ?, ?, ?, ?)",
+                "INSERT INTO permissions(capability, scope, resource, session_id, granted_at) VALUES (?, ?, ?, ?, ?)",
                 (capability.value, scope.value, res, self.session_id, self.clock()),
             )
         return int(cur.lastrowid or 0)

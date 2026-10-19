@@ -221,9 +221,7 @@ PAYLOAD_ADAPTER: TypeAdapter[Payload] = TypeAdapter(Payload)
 
 # Which payload types each client kind may send over IPC.
 ALLOWED_CLIENT_TYPES: dict[SourceKind, frozenset[str]] = {
-    SourceKind.SHELL: frozenset(
-        {"shell.session_started", "shell.command_started", "shell.command_finished"}
-    ),
+    SourceKind.SHELL: frozenset({"shell.session_started", "shell.command_started", "shell.command_finished"}),
     SourceKind.NVIM: frozenset(
         {
             "nvim.buffer_snapshot",

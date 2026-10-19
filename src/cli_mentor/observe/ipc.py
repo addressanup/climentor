@@ -125,9 +125,7 @@ class IpcServer:
             self.socket_path.unlink()
         old_umask = os.umask(0o177)
         try:
-            self._server = await asyncio.start_unix_server(
-                self._handle, path=str(self.socket_path), limit=MAX_LINE
-            )
+            self._server = await asyncio.start_unix_server(self._handle, path=str(self.socket_path), limit=MAX_LINE)
         finally:
             os.umask(old_umask)
         self.socket_path.chmod(0o600)
