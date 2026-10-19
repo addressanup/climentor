@@ -90,12 +90,23 @@ def compose(meta: TurnMeta | None) -> str:
         parts.append(f"Review time. {meta.learner_text}")
         parts.append("Explain in your own words what each skill does, then try a small example in the shell.")
     else:
-        parts.append("I am the offline mock tutor, so I cannot reason about free text. Here is what I can see:")
-        if meta.exercise_title:
-            parts.append(f"- Current exercise: **{meta.exercise_title}** (stage: {meta.stage})")
+        parts.append(
+            "Hi, I am your CLI Mentor tutor. (This is the offline mock, so I cannot understand free text; "
+            "I can still guide you through the lessons.)"
+        )
+        next_title = meta.extra.get("next_lesson_title")
+        if meta.exercise_title and meta.stage != "verified":
+            step = {
+                "explain": "answer the prediction question above, or type `/lesson skip`",
+                "attempt": "do the task in the shell or Neovim, then type `/check` (or `/hint` for help)",
+            }.get(meta.stage or "", "type `/lesson` to continue")
+            parts.append(f"You are on **{meta.exercise_title}**. Next: {step}.")
+        elif next_title:
+            intro = "Your first exercise" if not meta.extra.get("completed_count") else "Next up"
+            parts.append(f"{intro}: **{next_title}**. Type `/lesson` to start it.")
         if meta.last_command is not None:
-            parts.append(f"- Last command: `{meta.last_command}` (exit {meta.last_exit})")
-        parts.append("Try `/lesson`, `/hint`, `/explain <term>`, or `/check`.")
+            parts.append(f"Your last command was `{meta.last_command}` (exit {meta.last_exit}).")
+        parts.append("Useful commands: `/lesson`, `/hint`, `/explain <term>`, `/check`, `/progress`, `/help`.")
     return "\n\n".join(parts)
 
 

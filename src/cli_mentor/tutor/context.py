@@ -3,6 +3,7 @@
 Sections, in order of trust:
   system           trusted tutor policy + confirmed profile
   <guidance>       trusted, per trigger
+  <learner_progress>  trusted: where the learner is in the program, what to suggest next
   <exercise>       trusted curriculum data
   <retrieved_memory>  stored memory, each line labelled with provenance
   <tool_results>   trusted checker output
@@ -22,6 +23,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
+from ..curriculum.loader import TRACK_TITLES, lessons_by_track, next_lesson
 from ..curriculum.model import Lesson
 from ..curriculum.verify import VerificationResult
 from ..events.schema import SourceKind
@@ -34,12 +36,12 @@ from ..observe.workspace import WorkspaceScope
 from ..providers.base import ChatMessage, estimate_tokens
 from ..state.projection import WorkspaceState
 from .policy import Trigger
-from .prompts import TRIGGER_GUIDANCE, system_prompt
+from .prompts import TRIGGER_GUIDANCE, program_overview, system_prompt
 from .staleness import ContextRevision, relevant_keys
 
 Trust = Literal["trusted", "memory", "tool", "untrusted", "learner"]
 _TAG = re.compile(
-    r"</?\s*(observed_workspace|mentor_context|learner_message|tool_results|retrieved_memory|exercise|guidance)\b",
+    r"</?\s*(observed_workspace|mentor_context|learner_message|learner_progress|tool_results|retrieved_memory|exercise|guidance)\b",
     re.I,
 )
 
@@ -127,6 +129,43 @@ class ContextAssembler:
         self.clock = clock
 
     # ------------------------------------------------------------ sections
+    def _program(self) -> str:
+        tracks = {track: [(les.id, les.title) for les in items] for track, items in lessons_by_track().items()}
+        return program_overview(tracks, TRACK_TITLES)
+
+    def _progress(self, t: TurnInputs) -> str:
+        completed = self.evidence.completed_exercises()
+        sessions = len(self.sessions.list_sessions(500))
+        lines = [
+            "This is the learner's first CLI Mentor session."
+            if sessions <= 1 and not completed
+            else f"They have used CLI Mentor before (session {sessions}).",
+            f"Teaching mode: {t.mode}. Observation: {'on' if t.observation_allowed else 'off or paused'}.",
+            "Finished exercises: " + (", ".join(sorted(completed)) if completed else "none yet"),
+        ]
+        if t.goal:
+            lines.append(f"Session goal: {t.goal}")
+        stage_next = {
+            "explain": "they should answer the prediction question (or type /lesson skip)",
+            "attempt": "they are doing the task; /check when done, /hint for help",
+            "verified": "they finished it; suggest the next exercise",
+        }
+        if t.lesson is not None:
+            lines.append(
+                f"Current exercise: {t.lesson.id}: {t.lesson.title} (stage: {t.stage}); "
+                f"{stage_next.get(t.stage or '', 'continue it with /lesson')}."
+            )
+        nxt = next_lesson(completed)
+        if t.lesson is None or t.stage == "verified":
+            if nxt is not None:
+                lines.append(f"Suggested next exercise: {nxt.id}: {nxt.title} (they start it by typing /lesson).")
+            else:
+                lines.append("Every built-in exercise is finished; suggest /review or project mode.")
+        due = self.evidence.due_reviews()
+        if due:
+            lines.append("Skills due for review (type /review): " + ", ".join(s.skill for s in due[:6]))
+        return "\n".join(lines)
+
     def _exercise(self, t: TurnInputs) -> str:
         les = t.lesson
         if les is None:
@@ -251,7 +290,7 @@ class ContextAssembler:
     # ------------------------------------------------------------ build
     def build(self, t: TurnInputs, *, max_context_tokens: int, max_output_tokens: int) -> AssembledContext:
         profile_lines = [f.value for f in self.profile.confirmed()]
-        system = system_prompt(t.mode, profile_lines)
+        system = system_prompt(t.mode, profile_lines, self._program())
         files = (
             [os.path.realpath(t.exercise_dir / s.path) for s in t.lesson.setup] if t.lesson and t.exercise_dir else []
         )
@@ -282,6 +321,7 @@ class ContextAssembler:
         while True:
             sections = [
                 Section("guidance", "trusted", TRIGGER_GUIDANCE.get(t.trigger.value, "")),
+                Section("learner_progress", "trusted", self._progress(t)),
                 Section("exercise", "trusted", self._exercise(t)),
                 Section("retrieved_memory", "memory", self._memory(t)),
             ]

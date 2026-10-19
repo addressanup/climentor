@@ -30,12 +30,12 @@ pytest-asyncio 1.4.0, mypy 2.4.0, ruff 0.17.0, pynvim 0.6.0.
 
 ## Tests actually run (latest)
 
-Command: `uv run pytest -m "not live"` → **155 passed, 2 deselected** (run 3
+Command: `uv run pytest -m "not live"` → **157 passed, 2 deselected** (run 3
 times in a row with the same result after the last fix).
 
 | Group | Count | What they use |
 |---|---|---|
-| `tests/unit` | 136 | Pure logic, real SQLite, real IPC socket, real Python subprocesses, Textual Pilot, real SDK parsing via `httpx2.MockTransport` |
+| `tests/unit` | 138 | Pure logic, real SQLite, real IPC socket, real Python subprocesses, Textual Pilot, real SDK parsing via `httpx2.MockTransport` |
 | `tests/integration` | 17 | Real tmux (private sockets), real zsh with the hooks, real headless Neovim with the plugin |
 | `tests/e2e` | 2 | The real `mentor` command, tmux, zsh, Neovim, and the Textual tutor pane, mock provider |
 | `tests/live` | 2 | **Not run** (skipped: needs your API key and model id) |
@@ -73,6 +73,10 @@ tmux sockets.
 - `MentorApp._log` overrode a Textual internal → renamed.
 - Startup "incomplete" shell status from a harmless lost announcement → fixed.
 - Two flaky tests (wait conditions matched too early) → fixed.
+- Real-model greeting was generic (asked intake questions, invented its own exercise): the system prompt now
+  describes the program (panes, commands, curriculum) and each turn carries a trusted `<learner_progress>`
+  section (first session, finished exercises, current stage, suggested next exercise, due reviews).
+- DeepSeek via `--base-url`: errors and the init prompt now name the server contacted.
 
 ## Known limits / not done
 - Live provider calls not tested (no key here). SDK code paths are tested offline.

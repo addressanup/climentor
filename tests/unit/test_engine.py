@@ -425,3 +425,35 @@ async def test_python_check_requires_permission(ws: Path) -> None:
         assert result is not None and result.passed and result.executed_learner_code
     finally:
         await eng.stop()
+
+
+async def test_greeting_knows_the_program_and_next_step(ws: Path) -> None:
+    ui = HeadlessUi()
+    mock = MockProvider()
+    eng = make_engine(ws, ui=ui, provider=mock)
+    await eng.start(greet=False)
+    try:
+        await eng.learner_message("hello")
+        req = mock.requests[-1]
+        assert "About the program you are part of (CLI Mentor)" in req.system
+        assert "cli.navigation: Find the treasure" in req.system and "/lesson start <id>" in req.system
+        body = req.messages[-1].content
+        progress = body.split("<learner_progress>\n")[1].split("</learner_progress>")[0]
+        assert "first CLI Mentor session" in progress
+        assert "Suggested next exercise: cli.navigation" in progress
+        assert "intake interview" in body  # trigger guidance for greetings
+        reply = ui.last_turn("learner_message")
+        assert reply is not None
+        assert "CLI Mentor tutor" in reply.text and "Find the treasure" in reply.text and "/lesson" in reply.text
+
+        await eng.start_lesson("cli.files")
+        await eng.skip_prediction()
+        await eng.learner_message("hello again")
+        body = mock.requests[-1].messages[-1].content
+        progress = body.split("<learner_progress>\n")[1].split("</learner_progress>")[0]
+        assert "Current exercise: cli.files" in progress and "/check" in progress
+        assert "Suggested next exercise" not in progress
+        reply = ui.last_turn("learner_message")
+        assert reply is not None and "Tidy the desk" in reply.text and "/check" in reply.text
+    finally:
+        await eng.stop()

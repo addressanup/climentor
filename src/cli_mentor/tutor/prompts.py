@@ -79,15 +79,48 @@ TRIGGER_GUIDANCE = {
     "check and ask what they could change.",
     "review": "Ask one short review question about the listed skills. Wait for the answer.",
     "session_start": "Greet the learner briefly. Remind them where they left off, if known.",
-    "learner_message": "Answer the learner's message.",
+    "learner_message": "Answer the learner's message as their CLI Mentor tutor, using <learner_progress>. "
+    "If they greet you, seem unsure, or ask what to do: greet in one line, say where they are in the program "
+    "(first session, current exercise, or what they finished), and offer ONE concrete next step inside the "
+    "program, usually `/lesson` to start or continue the suggested exercise. Do not run an intake interview "
+    "about things the confirmed profile already says. Their skill level is unknown until checks record "
+    "evidence: instead of quizzing them first, point them to the suggested exercise (it starts from zero) and "
+    "invite them to tell you if something is already familiar.",
 }
 
 
-def system_prompt(mode: str, profile_lines: list[str]) -> str:
-    parts = [BASE_POLICY, MODE_POLICY.get(mode, MODE_POLICY["guided"])]
+def program_overview(tracks: dict[str, list[tuple[str, str]]], track_titles: dict[str, str]) -> str:
+    """What the model needs to know about the program it is part of."""
+    lines = [
+        "About the program you are part of (CLI Mentor):",
+        "- The learner sees one tmux window: you in the tutor pane on the left, Neovim top right, a zsh shell "
+        "bottom right. They type messages to you in the tutor pane and do the work in the shell and Neovim.",
+        "- While observation is on, you get a summary of those panes in <observed_workspace>. You cannot type "
+        "into them or run commands.",
+        "- Commands the learner can type to you: /lesson (start or continue the next exercise), /lesson list, "
+        "/lesson start <id>, /hint, /explain <term>, /check [answer], /progress, /review, /goal <text>, "
+        "/mode <name>, /observe pause|resume, /context, /help. Mention a command when it is the natural next step.",
+        "- Each exercise is checked by trusted code. Only those checks record progress; hints and solutions are "
+        "recorded as help received.",
+        "- Built-in curriculum (id: title):",
+    ]
+    for track, items in tracks.items():
+        lines.append(f"  {track_titles.get(track, track)}: " + "; ".join(f"{lid}: {title}" for lid, title in items))
+    lines.append(
+        "- Guide the learner into the built-in exercises. Do not invent a separate exercise when a built-in one "
+        "covers the topic (extra practice is fine after they finish one, when they ask, or in project mode)."
+    )
+    return "\n".join(lines)
+
+
+def system_prompt(mode: str, profile_lines: list[str], program: str = "") -> str:
+    parts = [BASE_POLICY]
+    if program:
+        parts.append(program)
+    parts.append(MODE_POLICY.get(mode, MODE_POLICY["guided"]))
     if profile_lines:
         parts.append(
-            "Confirmed learner profile (stated or confirmed by the learner):\n"
+            "Confirmed learner profile (stated or confirmed by the learner; already known, do not ask again):\n"
             + "\n".join(f"- {line}" for line in profile_lines)
         )
     else:

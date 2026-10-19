@@ -906,6 +906,8 @@ class Engine:
 
     def _meta(self, inputs: TurnInputs, ctx: AssembledContext) -> TurnMeta:
         lesson = inputs.lesson
+        completed = self.evidence.completed_exercises()
+        nxt = next_lesson(completed) if lesson is None or inputs.stage == "verified" else None
         last = self.state.last_command()
         error = None
         if last is not None and last.exit_status:
@@ -945,6 +947,8 @@ class Engine:
             extra={
                 "passed": bool(inputs.verification and inputs.verification.passed),
                 "expected_prediction": lesson.prediction_answer if lesson else "",
+                "next_lesson_title": nxt.title if nxt else "",
+                "completed_count": len(completed),
             },
         )
 

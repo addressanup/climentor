@@ -51,7 +51,7 @@ async def test_ui_starts_streams_and_shows_status(ws: Path) -> None:
         await pilot.pause(0.5)
         body = texts(app)
         assert "You" in body and "hello tutor" in body
-        assert "MOCK TUTOR" in body and "offline mock tutor" in body
+        assert "MOCK TUTOR" in body and "CLI Mentor tutor" in body
         assert app.query_one("#input").text == ""  # type: ignore[attr-defined]
 
 
