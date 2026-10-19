@@ -1,0 +1,73 @@
+[project]
+name = "cli-mentor"
+version = "0.1.0"
+description = "A terminal-native AI tutor that sits beside your real shell and Neovim."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [{ name = "CLI Mentor contributors" }]
+dependencies = [
+    "anthropic>=1.10",
+    "httpx2>=2.10",
+    "keyring>=25.0",
+    "openai>=3.20",
+    "pydantic>=2.10",
+    "rich>=14.0",
+    "textual>=8.0",
+    "tomlkit>=0.13",
+]
+
+[project.scripts]
+mentor = "cli_mentor.cli:main"
+
+[dependency-groups]
+dev = [
+    "mypy>=1.13",
+    "pynvim>=0.5",
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.8",
+]
+
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/cli_mentor"]
+
+[tool.uv]
+# Supply-chain rule: only lock package versions published at least 7 days
+# before this date was chosen. Move this date forward deliberately.
+exclude-newer = "2026-10-12T00:00:00Z"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "ASYNC", "RUF"]
+ignore = ["RUF001", "RUF002", "RUF003", "SIM105"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unreachable = true
+mypy_path = "src"
+packages = ["cli_mentor"]
+
+[[tool.mypy.overrides]]
+module = ["keyring.*", "pynvim.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+markers = [
+    "integration: uses real tmux, zsh, or Neovim on private sockets",
+    "e2e: end-to-end acceptance scenario with real tools and the mock provider",
+    "live: calls a real model provider and needs an API key",
+]
+addopts = "-ra"
