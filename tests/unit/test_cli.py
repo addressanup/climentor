@@ -135,3 +135,52 @@ def test_commands_doc_matches_in_app_help() -> None:
     }
     for name in parser_cmds:
         assert f"`mentor {name}" in doc, f"mentor {name} missing from docs/COMMANDS.md"
+
+
+def test_init_with_base_url_contacts_that_server(
+    mentor_env: dict[str, str], tmp_path: Path, memory_keyring: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import httpx2
+
+    from cli_mentor.providers.openai_provider import OpenAIProvider
+
+    memory_keyring.set_password("cli-mentor", "openai", "sk-test-deepseek-0123456789")  # type: ignore[attr-defined]
+    seen: list[str] = []
+
+    def handler(req: httpx2.Request) -> httpx2.Response:
+        seen.append(str(req.url))
+        return httpx2.Response(401, json={"error": {"message": "invalid key"}})
+
+    def fake_build(config: Config, provider: str) -> OpenAIProvider:
+        return OpenAIProvider(
+            "sk-test-deepseek-0123456789",
+            config.provider_settings(provider),  # type: ignore[arg-type]
+            http_client=httpx2.AsyncClient(transport=httpx2.MockTransport(handler)),
+        )
+
+    monkeypatch.setattr("cli_mentor.onboarding.build_provider", fake_build)
+    said: list[str] = []
+    prompts: list[str] = []
+    script = answers("y", *[""] * 8, "", "", "n", "y", "deepseek-v4-pro", "y")
+
+    def ask(prompt: str) -> str:
+        prompts.append(prompt)
+        return next(script)
+
+    paths = AppPaths.from_env()
+    run_init(
+        paths,
+        Config(),
+        workspace=str(tmp_path / "w"),
+        provider="openai",
+        base_url="https://api.deepseek.com",
+        ask=ask,
+        say=said.append,
+    )
+    assert seen and seen[0].startswith("https://api.deepseek.com/")
+    assert any("from https://api.deepseek.com?" in p for p in prompts)
+    assert any("The server at https://api.deepseek.com rejected the API key" in s for s in said)
+    assert "sk-test-deepseek" not in "\n".join(said + prompts)
+    cfg = load_config(paths.config_file)
+    assert cfg.providers.openai.base_url == "https://api.deepseek.com"
+    assert cfg.providers.openai.model == "deepseek-v4-pro"

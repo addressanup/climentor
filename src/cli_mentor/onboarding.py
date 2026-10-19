@@ -126,19 +126,21 @@ def run_init(
 
 
 def _choose_model(config: Config, provider: ProviderName, ask: Ask, say: Callable[[str], None]) -> str | None:
-    if not _yes(
-        ask(f"  Fetch the list of models from {provider}? (sends your key to {provider} to sign in) [Y/n] "), True
-    ):
-        return ask("  Type a model id: ").strip() or None
     settings = config.provider_settings(provider)
+    where = settings.base_url or {"anthropic": "api.anthropic.com", "openai": "api.openai.com"}[provider]
+    if not _yes(ask(f"  Fetch the list of models from {where}? (sends your key there to sign in) [Y/n] "), True):
+        return ask("  Type a model id: ").strip() or None
     previous = settings.model
     settings.model = settings.model or "placeholder"
     try:
         client = build_provider(config, provider)
         models = asyncio.run(client.list_models())
     except ProviderError as exc:
-        say(f"  {exc.user_message()}")
-        return ask("  Type a model id: ").strip() or None
+        say(f"  {exc.message}")
+        if exc.kind == "auth":
+            say("  Check two things: the key belongs to this service, and the address above is right.")
+            say("  For an OpenAI-compatible service, run init with --base-url <its address>.")
+        return ask("  Type a model id (or press Ctrl+C to stop; nothing is saved to config yet): ").strip() or None
     finally:
         settings.model = previous
     for i, m in enumerate(models[:40], start=1):

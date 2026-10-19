@@ -38,22 +38,23 @@ def _retry_after(exc: openai.APIStatusError) -> float | None:
         return None
 
 
-def map_error(exc: BaseException) -> ProviderError:
+def map_error(exc: BaseException, who: str = "OpenAI") -> ProviderError:
+    """Map SDK errors to learner-safe messages. ``who`` names the endpoint that answered."""
     if isinstance(exc, openai.AuthenticationError | openai.PermissionDeniedError):
-        return ProviderError("auth", "OpenAI rejected the API key or permissions.")
+        return ProviderError("auth", f"{who} rejected the API key or permissions.")
     if isinstance(exc, openai.RateLimitError):
-        return ProviderError("rate_limit", "OpenAI rate limit reached.", _retry_after(exc))
+        return ProviderError("rate_limit", f"{who}: rate limit reached.", _retry_after(exc))
     if isinstance(exc, openai.APITimeoutError):
-        return ProviderError("timeout", "OpenAI request timed out.")
+        return ProviderError("timeout", f"{who}: request timed out.")
     if isinstance(exc, openai.APIConnectionError):
-        return ProviderError("unavailable", "Could not connect to the OpenAI endpoint.")
+        return ProviderError("unavailable", f"Could not connect to {who}.")
     if isinstance(exc, openai.BadRequestError | openai.NotFoundError):
-        return ProviderError("bad_request", f"OpenAI rejected the request ({type(exc).__name__}).")
+        return ProviderError("bad_request", f"{who} rejected the request ({type(exc).__name__}).")
     if isinstance(exc, openai.APIStatusError):
         if exc.status_code >= 500:
-            return ProviderError("unavailable", f"OpenAI service error (HTTP {exc.status_code}).")
-        return ProviderError("unknown", f"OpenAI error (HTTP {exc.status_code}).")
-    return ProviderError("unknown", f"OpenAI error ({type(exc).__name__}).")
+            return ProviderError("unavailable", f"{who}: service error (HTTP {exc.status_code}).")
+        return ProviderError("unknown", f"{who}: error (HTTP {exc.status_code}).")
+    return ProviderError("unknown", f"{who}: error ({type(exc).__name__}).")
 
 
 class OpenAIProvider:
@@ -70,6 +71,8 @@ class OpenAIProvider:
             raise ProviderError("not_configured", "No OpenAI model is configured.")
         self.model = settings.model
         self.settings = settings
+        # Name the endpoint in errors, so a key sent to the wrong service is obvious.
+        self.endpoint = f"The server at {settings.base_url}" if settings.base_url else "OpenAI (api.openai.com)"
         self.client = openai.AsyncOpenAI(
             api_key=api_key,
             base_url=settings.base_url or None,
@@ -132,7 +135,7 @@ class OpenAIProvider:
             finally:
                 await stream.close()
         except openai.OpenAIError as exc:
-            raise map_error(exc) from None
+            raise map_error(exc, self.endpoint) from None
         for slot in calls.values():
             try:
                 args = json.loads(slot["args"] or "{}")
@@ -150,7 +153,7 @@ class OpenAIProvider:
         try:
             page = await self.client.models.list()
         except openai.OpenAIError as exc:
-            raise map_error(exc) from None
+            raise map_error(exc, self.endpoint) from None
         return sorted(m.id for m in page.data)
 
     async def aclose(self) -> None:
