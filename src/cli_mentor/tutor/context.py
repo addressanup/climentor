@@ -206,6 +206,8 @@ class ContextAssembler:
             lines.append("Explanation material:\n" + les.explanation_markdown())
         if t.trigger == Trigger.LESSON_INTRO and les.prediction:
             lines.append(f"Prediction question to ask: {les.prediction}")
+        if t.trigger == Trigger.EXPLAIN and t.stage == "explain" and les.prediction:
+            lines.append(f"Prediction question still open (ask it again at the end): {les.prediction}")
         if t.trigger == Trigger.PREDICTION:
             lines.append(f"Prediction question: {les.prediction}\nExpected answer: {les.prediction_answer}")
         if t.stage not in ("explain", None) or t.trigger == Trigger.PREDICTION:
@@ -327,8 +329,8 @@ class ContextAssembler:
         )
         history: list[ChatMessage] = []
         for role, content, status in self.sessions.recent_messages(t.session_id, limit=12):
-            if role == "note" or status not in ("complete", "stale"):
-                continue
+            if role == "note" or status not in ("complete", "stale") or not content.strip():
+                continue  # some APIs reject empty messages
             history.append(ChatMessage("user" if role == "learner" else "assistant", content))
         budget = Budget()
         trimmed: list[str] = []

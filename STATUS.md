@@ -30,12 +30,12 @@ pytest-asyncio 1.4.0, mypy 2.4.0, ruff 0.17.0, pynvim 0.6.0.
 
 ## Tests actually run (latest)
 
-Command: `uv run pytest -m "not live"` → **210 passed, 2 deselected** (after
-adding ChatGPT sign-in).
+Command: `uv run pytest -m "not live"` → **220 passed, 2 deselected** (after
+the real-model test fixes below).
 
 | Group | Count | What they use |
 |---|---|---|
-| `tests/unit` | 191 | Pure logic, real SQLite, real IPC socket, real Python subprocesses, Textual Pilot (tutor pane and full-screen setup), real SDK parsing via `httpx2.MockTransport`, ChatGPT sign-in against a fake OpenAI server with a real local return page |
+| `tests/unit` | 201 | Pure logic, real SQLite, real IPC socket, real Python subprocesses, Textual Pilot (tutor pane and full-screen setup), real SDK parsing via `httpx2.MockTransport`, ChatGPT sign-in against a fake OpenAI server with a real local return page |
 | `tests/integration` | 17 | Real tmux (private sockets), real zsh with the hooks, real headless Neovim with the plugin |
 | `tests/e2e` | 2 | The real `mentor` command, tmux, zsh, Neovim, and the Textual tutor pane, mock provider |
 | `tests/live` | 2 | **Not run** (skipped: needs your API key and model id) |
@@ -104,8 +104,37 @@ tmux sockets.
   answer), `assess_step` or `start_step`. Trusted code still decides pass or fail.
 - Running the program successfully in the step folder checks the step by itself, if running code was
   allowed for the session.
-- Tested with the mock provider and recorded tool calls; a real model's tool use is not yet tested.
+- Tested with the mock provider and recorded tool calls, and with DeepSeek (see the real-model test below).
 - Slash commands still work as optional shortcuts; no message suggests them any more.
+
+## Real-model end-to-end test (DeepSeek `deepseek-flash`, 2026-10-20)
+Two layers, in throwaway folders (the learner's real data untouched): the tutor engine driven turn by
+turn, then a full real session (private tmux, the learner's own zsh and Neovim, the Textual tutor pane)
+driven by keystrokes. 41 model calls, about 254k input and 57k output tokens.
+
+Worked first time: a sensible 65–67 step C++ plan in ~21 s; step preparation; vocabulary and
+symbol-by-symbol intros; prediction feedback; real compile errors quoted in hints; checks that ran the
+learner's code; welcome back; plain-English "next", "skip", "ready for the next one".
+
+Found and fixed (each has a regression test in `tests/unit/test_real_model_regressions.py`):
+- The tutor pane did not scroll to new messages (a long plan stayed out of view); PageUp/PageDown were
+  swallowed by the text box. Now the log is anchored to the newest message and the keys always scroll.
+- Replies were cut at 1024 tokens (intros lost their prediction question); now at least 3000, and a cut
+  reply says so.
+- Right answers in a sentence failed the answer check; now a clear statement passes (not hedges or "not …").
+- The model used the exact-answer check for "explain in your own words"; now only short facts are allowed,
+  and a rejected step is retried once with the exact problem.
+- Between steps, a tool-only reply left the learner with silence (and an empty bubble); now the model is
+  asked for words, and empty bubbles are hidden.
+- A question before predicting was recorded as the prediction; now it is answered and the prediction stays open.
+- Steps without starter files had no folder; the learner was not told which folder to work in.
+- "Yes, for this session" to running code covered one step only, so automatic checks never fired later.
+- The "writing" spinner stayed on after replies; Neovim showed "incomplete"/"disconnected" forever after a
+  tutor restart or after closing a second Neovim; hints could quote the Neovim pane instead of the shell.
+- Cosmetic: "Module 1: Module 1: …", a literal "\n" in step text, a double full stop, folder names cut mid-word.
+
+Still not tested with a real model: plan revision, the no-check AI review, hints at levels 2–3, later
+modules, other languages, the ChatGPT plan.
 
 ## ChatGPT plan (current)
 - "Continue with ChatGPT" in `mentor init`, plus `mentor login` / `mentor logout [--forget]`. Uses OpenAI's
@@ -122,12 +151,12 @@ tmux sockets.
 Welcome asks what to learn → the model proposes a plan → learner accepts or revises → steps are prepared
 on demand and checked by the fixed check menu (real C/C++ compile-and-run supported) → later sessions offer
 to continue. Each subject has its own folder and session; `mentor start` asks which to continue.
-Built-in lessons were removed by request. Tested with recorded plan answers (mock fixture);
-NOT yet tested against a real model (plan quality and tool-call reliability with DeepSeek are unknown).
+Built-in lessons were removed by request. Tested with recorded plan answers (mock fixture) and, for
+the first three steps of a C++ plan, with DeepSeek (see the real-model test above).
 
 ## Known limits / not done
-- Live provider calls not tested (no key or ChatGPT sign-in here). SDK code paths are tested offline.
-- OpenAI-compatible `base_url` servers: unverified.
+- Live provider calls: DeepSeek (OpenAI-compatible `base_url`) tested end to end; Anthropic, OpenAI itself
+  and the ChatGPT plan not yet (no key or sign-in here). SDK code paths are tested offline.
 - Linux: not verified; CI Linux job is marked experimental.
 - CI workflow written but never run (no git remote).
 - zsh only; REPL input is not observable.

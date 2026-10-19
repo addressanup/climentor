@@ -102,6 +102,12 @@ class ModuleOutline(_M):
     summary: str = Field(default="", max_length=600)
     steps: list[StepOutline] = Field(min_length=1, max_length=12)
 
+    @field_validator("title")
+    @classmethod
+    def _unnumbered(cls, value: str) -> str:
+        # Models often write “Module 3: Loops”; the plan adds the number itself.
+        return re.sub(r"^\s*(module|part|unit)\s+\d+\s*[:.)\-–—]\s*", "", value, flags=re.I) or value
+
 
 class PlanOutline(_M):
     title: str = Field(min_length=3, max_length=100)
@@ -176,11 +182,30 @@ class EditorCommands(_M):
 
 
 class LearnerAnswer(_M):
-    """The learner gives an answer in plain words; compared without case or punctuation."""
+    """A short factual answer (a name, a number, a type), compared without case or punctuation.
+
+    Not for “explain in your own words” questions: wording varies, so a word match would fail
+    correct explanations. The tutor discusses those instead.
+    """
 
     type: Literal["learner_answer"]
     question: str = Field(min_length=3, max_length=400)
-    accepted: list[str] = Field(min_length=1, max_length=10)
+    accepted: list[str] = Field(
+        min_length=1,
+        max_length=10,
+        description="Short factual answers only, at most 4 words each, e.g. ['int', 'an int', 'integer'].",
+    )
+
+    @field_validator("accepted")
+    @classmethod
+    def _short(cls, value: list[str]) -> list[str]:
+        long = [a for a in value if len(a.split()) > 4]
+        if long:
+            raise ValueError(
+                "learner_answer is for short facts (at most 4 words per accepted answer); "
+                "do not use it for explanations in the learner's own words"
+            )
+        return value
 
 
 Check = Annotated[
@@ -323,7 +348,18 @@ class PlanInfo:
 
 def slug(text: str, limit: int = 28) -> str:
     s = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
-    return (s[:limit].rstrip("-")) or "plan"
+    if len(s) > limit:  # cut between words, not inside one
+        cut = s[: limit + 1]
+        s = cut[: cut.rfind("-")] if "-" in cut else s[:limit]
+    return s.rstrip("-") or "plan"
+
+
+def _prose(text: str) -> str:
+    """Some models double-escape newlines in tool arguments, so the text shows a literal backslash-n.
+
+    Only for prose: in code, a backslash-n can be a real escape such as ``"Hi\\n"``.
+    """
+    return text.replace("\\n", "\n") if "\\n" in text and "\n" not in text else text
 
 
 def lesson_id(plan_id: str, step_id: str) -> str:
@@ -553,25 +589,27 @@ def build_lesson(plan: PlanInfo, step: StepInfo, details: StepDetails) -> Lesson
         order=step.position,
         skills=details.skills,
         objectives=[step.objective],
-        vocabulary=[Vocab(term=c.term, meaning=c.meaning) for c in details.vocabulary],
+        vocabulary=[Vocab(term=c.term, meaning=_prose(c.meaning)) for c in details.vocabulary],
         syntax=[
             SyntaxBreakdown(
-                example=s.example, note=s.note, parts=[SyntaxPart(token=p.token, meaning=p.meaning) for p in s.parts]
+                example=s.example,
+                note=_prose(s.note),
+                parts=[SyntaxPart(token=p.token, meaning=p.meaning) for p in s.parts],
             )
             for s in details.syntax
         ],
-        demonstration=details.demonstration,
-        prediction=details.prediction,
-        prediction_answer=details.prediction_answer,
-        instructions=details.instructions,
+        demonstration=_prose(details.demonstration),
+        prediction=_prose(details.prediction),
+        prediction_answer=_prose(details.prediction_answer),
+        instructions=_prose(details.instructions),
         workdir=f"{plan.folder_name}/{step.position:02d}-{slug(step.title, 24)}",
         setup=[SetupFile(path=f.path, content=f.content) for f in details.starter_files],
-        hints=[Hint(level=i + 1, text=text) for i, text in enumerate(details.hints)],
+        hints=[Hint(level=i + 1, text=_prose(text)) for i, text in enumerate(details.hints)],
         solution=details.solution,
         verifier="plan.generic.v1",
         verifier_params={"checks": [c.model_dump() for c in details.checks]},
         rubric=[describe_check(c) for c in details.checks] or ["reviewed by the tutor (no automatic check)"],
-        transfer=details.transfer,
+        transfer=[_prose(t) for t in details.transfer],
         risk="runs_learner_code" if runs_code else "writes_workspace",
         telemetry="nvim_normal_commands" if uses_editor else "none",
     )

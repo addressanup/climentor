@@ -356,8 +356,9 @@ class MentorApp(App[str]):
         Binding("escape", "cancel", "Cancel reply", show=False),
         Binding("ctrl+q", "quit_menu", "Quit", priority=True),
         Binding("ctrl+l", "focus_input", "Focus input", show=False),
-        Binding("pageup", "scroll_log(-1)", "Scroll up", show=False),
-        Binding("pagedown", "scroll_log(1)", "Scroll down", show=False),
+        # priority: the text box would otherwise take these keys, so the conversation could not scroll
+        Binding("pageup", "scroll_log(-1)", "Scroll up", show=False, priority=True),
+        Binding("pagedown", "scroll_log(1)", "Scroll down", show=False, priority=True),
     ]
 
     def __init__(
@@ -400,6 +401,8 @@ class MentorApp(App[str]):
 
     async def on_mount(self) -> None:
         self._show_status(None)
+        # Stay at the newest message as text arrives; scrolling up lets go, scrolling to the end holds on again.
+        self.query_one("#log", VerticalScroll).anchor()
         self.query_one("#input", PromptInput).focus()
         self.set_interval(0.08, self._tick)
         for kind, text in self.startup_notes:
@@ -423,11 +426,7 @@ class MentorApp(App[str]):
         return self._main("#log", VerticalScroll)
 
     def _append(self, entry: Entry) -> None:
-        log = self._log_view()
-        at_bottom = log.scroll_offset.y >= log.max_scroll_y - 2
-        log.mount(entry)
-        if at_bottom:
-            self.call_after_refresh(log.scroll_end, animate=False)
+        self._log_view().mount(entry)  # the anchored log follows new text unless you scrolled up
 
     def tutor_begin(self, turn_id: int, trigger: str, label: str) -> None:
         entry = Entry("tutor", "", label=tutor_label(trigger, label, "streaming"))
@@ -445,6 +444,11 @@ class MentorApp(App[str]):
         if turn_id not in self.turns:
             return
         entry, parts, trigger, label = self.turns[turn_id]
+        if status == "complete" and not "".join(parts).strip() and not note:
+            entry.remove()  # the tutor only took an action (such as running the check); nothing to read
+            del self.turns[turn_id]
+            self._dirty.discard(turn_id)
+            return
         entry.label.update(tutor_label(trigger, label))
         glyph, words, style = STATUS_WORDS.get(status, ("", "", ""))
         if words:
@@ -454,14 +458,11 @@ class MentorApp(App[str]):
         text = "".join(parts)
         entry.md.set_text(text or ("_(stopped before any text)_" if words else "_(no text)_"))
         self._dirty.discard(turn_id)
-        self._log_view().scroll_end(animate=False)
 
     def _tick(self) -> None:
         for turn_id in list(self._dirty):
             entry, parts, _trigger, _label = self.turns[turn_id]
             entry.md.set_text("".join(parts))
-        if self._dirty:
-            self._log_view().scroll_end(animate=False)
         self._dirty.clear()
         if self._busy:
             self._frame += 1
@@ -512,6 +513,7 @@ class MentorApp(App[str]):
     async def on_prompt_input_submitted(self, message: PromptInput.Submitted) -> None:
         text = message.text
         self._append(Entry("learner", text))
+        self._log_view().anchor()  # you just spoke: follow the conversation again, even if you had scrolled up
         self.run_worker(self._handle(text), exclusive=False, group="input")
 
     async def _handle(self, text: str) -> None:
@@ -539,7 +541,11 @@ class MentorApp(App[str]):
 
     def action_scroll_log(self, direction: int) -> None:
         log = self._log_view()
-        log.scroll_relative(y=direction * max(1, log.size.height - 2), animate=False)
+        step = direction * max(1, log.size.height - 2)
+        if direction > 0 and log.scroll_y + step >= log.max_scroll_y:
+            log.anchor()  # reached the end: follow new text again
+        else:
+            log.scroll_relative(y=step, animate=False)
 
     async def action_quit_menu(self) -> None:
         self.run_worker(self._quit_flow(), exclusive=True, group="quit")

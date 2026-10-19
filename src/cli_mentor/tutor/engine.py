@@ -17,6 +17,7 @@ import json
 import logging
 import os
 import re
+import shlex
 import shutil
 import time
 from collections.abc import Callable
@@ -94,6 +95,9 @@ log = logging.getLogger(__name__)
 
 NOT_PERSISTED = frozenset({"tmux.output", "nvim.cursor"})
 NO_STALE_NOTE = frozenset({Trigger.LESSON_INTRO, Trigger.PLAN, Trigger.PLAN_REVISE, Trigger.PREPARE_STEP})
+# Every reply gets room to finish: wordy models (DeepSeek) cut off explanations and hints at 1024 tokens.
+MIN_REPLY_TOKENS = 3000
+CUT_OFF = frozenset({"length", "max_tokens", "max_output_tokens"})  # stop reasons that mean “ran out of room”
 CALLER_HANDLED_TOOLS = frozenset({"propose_plan", "prepare_step", "assess_step", "request_check", "start_step"})
 YES = re.compile(
     r"^(y|yes|yeah|yep|ok|okay|sure|start|go|let'?s go|let'?s start|sounds good|looks good|perfect)\b[.!]*", re.I
@@ -169,6 +173,16 @@ def _needs_review(lesson: Lesson) -> bool:
     return not _check_types(lesson)
 
 
+def _problems(exc: ValidationError, limit: int = 6) -> str:
+    """Where a model's tool call broke the schema: field paths and reasons, never the values."""
+    found = exc.errors(include_input=False, include_url=False)
+    return "; ".join(f"{'.'.join(map(str, e['loc'])) or 'top level'}: {e['msg']}" for e in found[:limit])
+
+
+def _retry_note(tool: str, problem: str) -> str:
+    return f"Your last {tool} call was rejected: {problem}. Call {tool} again with every field valid and complete."
+
+
 def _redact_obj(value: Any) -> Any:
     if isinstance(value, str):
         return redact_text(value)
@@ -231,6 +245,7 @@ class Engine:
         self.evidence = EvidenceStore(store, clock)
         self.plans = PlanStore(store)
         self._turn_tools: dict[int, list[ToolCall]] = {}
+        self.last_reply = ""  # words of the latest visible tutor reply
         self.assembler = ContextAssembler(
             self.state, self.scope, self.profile, self.notes, self.evidence, self.sessions, clock, plans=self.plans
         )
@@ -393,8 +408,12 @@ class Engine:
         if ident.kind == SourceKind.NVIM:
             log.info("neovim %s %s", ident.id, "connected" if connected else "disconnected")
             if not connected:
-                src = self.state.sources.get((ident.kind.value, ident.id))
-                if src is not None:
+                source_key = (ident.kind.value, ident.id)
+                others = [k for k in self.state.sources if k[0] == ident.kind.value and k != source_key]
+                src = self.state.sources.get(source_key)
+                if others:  # another Neovim is still open (say, one started in the shell just closed)
+                    self.state.sources.pop(source_key, None)
+                elif src is not None:
                     from ..state.projection import SyncStatus
 
                     src.status = SyncStatus.DISCONNECTED
@@ -742,6 +761,8 @@ class Engine:
                 )
                 return None
             apply_setup(fresh, self.store)
+        else:  # no starter files, but the learner still works in this step's own folder
+            plan.workdir.mkdir(parents=True, exist_ok=True)
         previous = self.lesson()
         if previous is not None and previous.id != lesson.id:
             self._disable_telemetry(previous.id)
@@ -793,12 +814,24 @@ class Engine:
         calls = await self.run_turn(
             trigger, learner_text=text, tools=[PLAN_TOOL], extra_trusted=extra, plan_budget=True
         )
-        for call in calls:
-            if call.name == "propose_plan":
-                try:
-                    return PlanOutline.model_validate(call.arguments)
-                except ValidationError as exc:
-                    log.warning("invalid plan from model: %s errors", exc.error_count())
+        for attempt in range(2):
+            problem = ""
+            for call in calls:
+                if call.name == "propose_plan":
+                    try:
+                        return PlanOutline.model_validate(call.arguments)
+                    except ValidationError as exc:
+                        problem = _problems(exc)
+                        log.warning("invalid plan from model: %s", problem)
+            if not problem or attempt:  # no plan offered (perhaps a question for the learner), or a second miss
+                break
+            calls = await self.run_turn(
+                trigger,
+                tools=[PLAN_TOOL],
+                extra_trusted=[*extra, _retry_note("propose_plan", problem)],
+                plan_budget=True,
+                visible=False,
+            )
         self.ui.note(
             "I could not get a usable plan from the model. Try saying it again, a bit more specifically.", "warn"
         )
@@ -891,18 +924,23 @@ class Engine:
             "Practice files are created in a fresh folder for this step; paths are relative to it.",
         ]
         self.ui.note(f"Preparing step {step.position}: {step.title}…", "info")
-        calls = await self.run_turn(
-            Trigger.PREPARE_STEP, tools=[STEP_TOOL], extra_trusted=extra, visible=False, plan_budget=True
-        )
-        for call in calls:
-            if call.name == "prepare_step":
-                try:
-                    lesson = build_lesson(plan, step, StepDetails.model_validate(call.arguments))
-                except ValidationError as exc:
-                    log.warning("invalid step from model: %s errors", exc.error_count())
-                    continue
-                self.plans.save_lesson(plan.id, step.step_id, lesson)
-                return lesson
+        notes: list[str] = []
+        for _attempt in range(2):  # a rejected step gets one retry, told exactly what was wrong
+            calls = await self.run_turn(
+                Trigger.PREPARE_STEP, tools=[STEP_TOOL], extra_trusted=extra + notes, visible=False, plan_budget=True
+            )
+            problem = "you did not call prepare_step"
+            for call in calls:
+                if call.name == "prepare_step":
+                    try:
+                        lesson = build_lesson(plan, step, StepDetails.model_validate(call.arguments))
+                    except ValidationError as exc:
+                        problem = _problems(exc)
+                        log.warning("invalid step from model: %s", problem)
+                        continue
+                    self.plans.save_lesson(plan.id, step.step_id, lesson)
+                    return lesson
+            notes = [_retry_note("prepare_step", problem)]
         self.ui.note("I could not prepare this step. Say “next” to try again.", "warn")
         return None
 
@@ -1003,6 +1041,7 @@ class Engine:
         self.session.exercise_stage = "attempt"
         self._save_session()
         await self.run_turn(Trigger.PREDICTION, learner_text=text)
+        self._where_to_work()
 
     async def skip_prediction(self) -> None:
         lesson = self.lesson()
@@ -1011,6 +1050,14 @@ class Engine:
         self.session.exercise_stage = "attempt"
         self._save_session()
         self.ui.note(f"**Your task:**\n\n{lesson.instructions.strip()}", "info")
+        self._where_to_work()
+
+    def _where_to_work(self) -> None:
+        """Say which folder the task's files belong in, unless the shell is already there."""
+        wd = self.exercise_dir()
+        if wd is None or (self.state.cwd and os.path.realpath(self.state.cwd) == os.path.realpath(wd)):
+            return
+        self.ui.note(f"**Where to work:** this step's folder. In the shell, run `cd {shlex.quote(str(wd))}` first.")
 
     async def hint(self) -> None:
         lesson = self.lesson()
@@ -1068,10 +1115,12 @@ class Engine:
             return None
         verifier = get_verifier(lesson.verifier)
         workdir = self.workspace_root / lesson.workdir
+        # “For this session” must cover every step of the subject, not only this step's folder.
+        code_scope = workdir.parent if lesson.track == "plan" else workdir
         runner: HostRunner | None = None
         if verifier.executes_learner_code or lesson.risk == "runs_learner_code":
             if auto:
-                decision = self.permissions.check(Capability.RUN_LEARNER_CODE, workdir)
+                decision = self.permissions.check(Capability.RUN_LEARNER_CODE, code_scope)
                 if not (run_code and decision.allowed):
                     return None
                 self.permissions.consume(decision)
@@ -1079,7 +1128,7 @@ class Engine:
             else:
                 ok = await self._approve(
                     Capability.RUN_LEARNER_CODE,
-                    workdir,
+                    code_scope,
                     "Run your code to check it?",
                     "This check compiles (if needed) and runs YOUR code on this Mac.\n"
                     "Limits: 10 second timeout, CPU and file-size limits, a clean environment without API keys.\n"
@@ -1161,7 +1210,7 @@ class Engine:
         else:
             self._say(
                 f"Step done ({done} of {total}). Next is **step {nxt.position}: {nxt.title}** — "
-                f"{nxt.objective}. Say **next** when you are ready, or ask me anything first.",
+                f"{nxt.objective.rstrip('. ')}. Say **next** when you are ready, or ask me anything first.",
                 "verification",
             )
 
@@ -1314,7 +1363,12 @@ class Engine:
         lesson = self.lesson()
         stage = self.session.exercise_stage if lesson is not None else None
         if stage == "explain":
-            await (self.skip_prediction() if short and SKIP.match(said) else self.answer_prediction(said))
+            if short and SKIP.match(said):
+                await self.skip_prediction()
+            elif said.endswith("?"):  # a question before predicting: answer it, keep the prediction open
+                await self.run_turn(Trigger.EXPLAIN, learner_text=said)
+            else:
+                await self.answer_prediction(said)
             return
         if stage == "attempt" and lesson is not None:
             await self._during_attempt(lesson, said, short)
@@ -1324,11 +1378,11 @@ class Engine:
             await self.skip_step()
         elif short and NEXT.match(said):
             await self.start_step()
-        else:
-            calls = await self.run_turn(
-                Trigger.LEARNER_MESSAGE, learner_text=said, tools=[*actions.TOOLS, actions.START_TOOL]
-            )
-            await self._act_on(calls, None)
+        else:  # nothing to check between steps, so request_check is not offered
+            tools = [*(t for t in actions.TOOLS if t.name != "request_check"), actions.START_TOOL]
+            calls = await self.run_turn(Trigger.LEARNER_MESSAGE, learner_text=said, tools=tools)
+            if not await self._act_on(calls, None):
+                await self._ensure_reply()
 
     async def _during_attempt(self, lesson: Lesson, said: str, short: bool) -> None:
         """The learner is doing the task. Saying they are done, answering, or asking for help all just work."""
@@ -1350,23 +1404,34 @@ class Engine:
                 return
         tools = [*actions.TOOLS, *([actions.ASSESS_TOOL] if _needs_review(lesson) else [])]
         calls = await self.run_turn(Trigger.LEARNER_MESSAGE, learner_text=said, tools=tools)
-        await self._act_on(calls, lesson)
+        if not await self._act_on(calls, lesson):
+            await self._ensure_reply()
 
-    async def _act_on(self, calls: list[ToolCall], lesson: Lesson | None) -> None:
-        """Carry out what the tutor decided from the learner's plain-English message."""
+    async def _act_on(self, calls: list[ToolCall], lesson: Lesson | None) -> bool:
+        """Carry out what the tutor decided from the learner's plain-English message. True if it acted."""
         for parsed in (actions.validate(c) for c in calls):
             if isinstance(parsed, actions.RequestCheck) and lesson is not None:
                 await self.check(answer=parsed.answer.strip() or None)
-                return
+                return True
             if isinstance(parsed, actions.AssessStep) and lesson is not None and _needs_review(lesson):
                 attempt = self.evidence.current_attempt(lesson.id) or self.evidence.start_attempt(
                     self.session_id, lesson, self.session.mode
                 )
                 self._apply_verdict(lesson, attempt.id, parsed)
-                return
+                return True
             if isinstance(parsed, actions.StartStep) and lesson is None:
                 await self.start_step()
-                return
+                return True
+        return False
+
+    async def _ensure_reply(self) -> None:
+        """The model wrote nothing and took no action: the learner must still get an answer."""
+        if not self.last_reply.strip():
+            await self.run_turn(
+                Trigger.LEARNER_MESSAGE,
+                tools=[],
+                extra_trusted=["You did not reply yet. Answer the learner's last message in words."],
+            )
 
     async def run_turn(
         self,
@@ -1409,6 +1474,7 @@ class Engine:
         )
         settings = self.config.provider_settings(self.provider.name)  # type: ignore[arg-type]
         out_tokens = settings.plan_max_output_tokens if plan_budget else settings.max_output_tokens
+        out_tokens = max(out_tokens, MIN_REPLY_TOKENS)
         ctx = self.assembler.build(
             inputs,
             max_context_tokens=max(settings.max_context_tokens, out_tokens + 4000),
@@ -1422,6 +1488,8 @@ class Engine:
             self._turn(turn_id, trigger, inputs, ctx, tools=tools, out_tokens=out_tokens, visible=visible)
         )
         self.inflight = InFlight(turn_id, trigger, ctx.revision, task)
+        # The task's own last status update still counts it as running; refresh once it has really ended.
+        task.add_done_callback(lambda _t: self.push_status())
         self.push_status()
         if wait:
             with contextlib.suppress(asyncio.CancelledError):
@@ -1435,7 +1503,10 @@ class Engine:
         last = self.state.last_command()
         error = None
         if last is not None and last.exit_status:
-            pane = next((p for p in self.state.panes.values() if p.tail or p.snapshot), None)
+            # The pane the command ran in (the shell), not whichever pane comes first (often Neovim).
+            pane = self.state.panes.get(last.pane or "")
+            if pane is None or not (pane.tail or pane.snapshot):
+                pane = next((p for p in self.state.panes.values() if p.tail or p.snapshot), None)
             if pane is not None:
                 text = pane.tail if pane.tail.strip() else "\n".join(pane.snapshot)
                 rows = [r for r in text.splitlines() if r.strip()]
@@ -1542,8 +1613,8 @@ class Engine:
                             event.output_tokens,
                             event.estimated,
                         )
-                    elif isinstance(event, Done):
-                        pass
+                    elif isinstance(event, Done) and event.stop_reason in CUT_OFF:
+                        note = "This reply hit the length limit and was cut short. Ask “can you finish that?”"
             s = assess(trigger, ctx.revision, self.state)
             if trigger in SOLICITED and s.material and trigger not in NO_STALE_NOTE:
                 status = "stale"
@@ -1594,6 +1665,7 @@ class Engine:
             self.push_status()
             return
         if visible:
+            self.last_reply = "".join(text_parts)
             self.ui.tutor_end(turn_id, status, note)
             if text_parts:
                 self.sessions.add_message(

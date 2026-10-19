@@ -62,8 +62,8 @@ TOOLS: list[ToolSpec] = [
     ToolSpec(
         "request_check",
         "Run the trusted checker for the current step. Call it when the learner says, in any words, that they "
-        "have finished, or when they answer the step's question. Put their answer in `answer` (a few words, "
-        "their own wording, for example `int`).",
+        "have finished, or when they answer the step's question. Put ONLY the answer itself in `answer`, in "
+        "their wording and without the rest of the sentence: “I guess it's clang on my Mac” gives `clang`.",
         RequestCheck.model_json_schema(),
     ),
 ]

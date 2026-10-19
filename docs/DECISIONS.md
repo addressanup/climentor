@@ -187,3 +187,14 @@ refresh token would sign Codex out.
   registration so another account can sign in.
 - The tutor status shows "using ChatGPT plan", and usage errors link to
   chatgpt.com/settings/usage, following OpenAI's UI guidelines.
+
+## 2026-10-20 — Lessons from the first real-model run (DeepSeek)
+- Every tutor reply gets at least 3000 output tokens; a reply that still hits the limit is labelled.
+- `learner_answer` is for short facts (at most 4 words per accepted answer). A sentence that clearly
+  states an accepted answer passes; hedges ("x or y") and negations ("not x") do not.
+- A model plan or step that fails validation is retried once, with the field paths and reasons (never
+  the values) sent back to the model.
+- If the model answers with only a tool call that does nothing, the engine asks once more for words.
+- "Run my code for this session" is granted for the subject's folder, so it covers every step.
+- The conversation log uses Textual's anchoring: it follows new text, lets go when you scroll up, and
+  follows again when you scroll to the end or send a message.

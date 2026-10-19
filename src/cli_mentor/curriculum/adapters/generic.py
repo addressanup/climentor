@@ -33,6 +33,31 @@ def _normalise_answer(text: str) -> str:
     return re.sub(r"[\s\W_]+", " ", text.casefold()).strip()
 
 
+# Words that undo an answer right after them: “not clang”, “isn't 4”.
+NEGATIONS = frozenset({"not", "no", "never", "nor", "isn", "aren", "wasn", "doesn", "don", "didn"})
+
+
+def answer_matches(given: str, accepted: list[str]) -> bool:
+    """Is ``given`` one of the accepted answers, or a sentence that clearly states one?
+
+    “clang” and “so c++ is actually clang” both pass. A hedge (“gcc or clang”) or a
+    negated mention (“not clang”) does not, so guessing every option never passes.
+    """
+    text = _normalise_answer(given)
+    options = {_normalise_answer(a) for a in accepted} - {""}
+    if not text or text in options:
+        return bool(text)
+    words = text.split()
+    if "or" in words:
+        return False
+    padded = f" {text} "
+    for option in options:
+        at = padded.find(f" {option} ")
+        if at >= 0 and not NEGATIONS & set(padded[:at].split()[-2:]):
+            return True
+    return False
+
+
 def _first_word(command: str) -> str:
     try:
         words = shlex.split(command)
@@ -109,9 +134,11 @@ class PlanStepVerifier:
                 else:
                     technique, technique_detail = "verified", "saw " + ", ".join(c.commands)
             elif isinstance(c, LearnerAnswer):
-                given = _normalise_answer(ctx.answer or "")
-                ok = bool(given) and given in {_normalise_answer(a) for a in c.accepted}
-                detail = "correct" if ok else ("tell me your answer" if not given else "not the expected answer")
+                given = ctx.answer or ""
+                ok = answer_matches(given, c.accepted)
+                detail = (
+                    "correct" if ok else ("tell me your answer" if not given.strip() else "not the expected answer")
+                )
                 results.append(Check(f"Answer: {c.question}", ok, detail, "learner_answer"))
         if not results:
             return VerificationResult(self.id, False, [], technique, technique_detail, executed, needs_review=True)

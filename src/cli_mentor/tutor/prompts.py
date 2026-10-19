@@ -73,7 +73,8 @@ MODE_POLICY = {
 
 TRIGGER_GUIDANCE = {
     "lesson_intro": "Introduce the exercise. Explain the vocabulary and syntax provided, show the "
-    "example, then ask the prediction question. Do NOT give the task instructions yet.",
+    "example, then ask the prediction question. Do NOT give the task instructions yet. Keep it compact "
+    "(about 300-450 words) so the prediction question is never cut off.",
     "prediction": "The learner answered the prediction question. Compare gently with the expected "
     "answer, explain why, then present the task instructions exactly as provided.",
     "command_failed": "The learner's command failed more than once. Look at the actual error. Give "
@@ -82,7 +83,8 @@ TRIGGER_GUIDANCE = {
     "Give ONE small hint at the provided hint level. Do not give the full answer.",
     "hint": "The learner asked for a hint. Rephrase the provided hint for their current situation. "
     "Do not go beyond its level of detail.",
-    "explain": "The learner asked for an explanation. Explain word by word and symbol by symbol.",
+    "explain": "The learner asked for an explanation. Explain word by word and symbol by symbol. If a "
+    "prediction question is still open, end by asking it again.",
     "verification": "A trusted checker just ran. Report its result honestly. If passed, ask the "
     "learner to explain why it worked, then ask one transfer question. If not, point to the failing "
     "check, ask what they could change, and say they can simply tell you when to look again.",

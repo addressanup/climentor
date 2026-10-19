@@ -255,6 +255,16 @@ class WorkspaceState:
             src.status = SyncStatus.CURRENT
             src.detail = "receiving again; earlier history incomplete"
             result.changed.add("sync:shell")
+        elif (
+            env.source.kind == SourceKind.NVIM
+            and src.status == SyncStatus.INCOMPLETE
+            and not any(b.incomplete for b in self.buffers.values() if b.source_id == env.source.id)
+        ):
+            # After a reconnect (for example the tutor restarted) Neovim resends its buffers as snapshots.
+            # With no half-known buffer left, what we have matches what it sends.
+            src.status = SyncStatus.CURRENT
+            src.detail = "receiving again after a gap"
+            result.changed.add("sync:nvim")
         handler = getattr(self, "_on_" + env.payload.type.replace(".", "_"), None)
         if handler is not None:
             handler(env, result)
