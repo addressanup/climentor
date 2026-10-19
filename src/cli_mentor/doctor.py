@@ -35,6 +35,24 @@ def _version(cmd: list[str], pattern: str) -> tuple[int, ...] | None:
     return tuple(int(x) for x in match.group(1).split("."))
 
 
+def _chatgpt_check(paths: AppPaths) -> CheckResult:
+    from .chatgpt_auth import USAGE_URL, ChatGPTAuth
+
+    account = ChatGPTAuth(paths).account()
+    if account is None or not account.signed_in:
+        return CheckResult("ChatGPT sign-in", "FAIL", "not signed in", "Run `mentor login`.")
+    if not account.plan_enabled:
+        return CheckResult(
+            "ChatGPT sign-in",
+            "FAIL",
+            f"signed in as {account.label}, but CLI Mentor may not use your ChatGPT plan",
+            "Run `mentor login` and allow plan usage, or choose an API key with `mentor init`.",
+        )
+    return CheckResult(
+        "ChatGPT sign-in", "OK", f"signed in as {account.label}; using your ChatGPT plan (manage usage: {USAGE_URL})"
+    )
+
+
 def run_checks(paths: AppPaths | None = None) -> list[CheckResult]:
     paths = paths or AppPaths.from_env()
     results: list[CheckResult] = []
@@ -165,9 +183,11 @@ def run_checks(paths: AppPaths | None = None) -> list[CheckResult]:
                 "Model provider",
                 "INFO",
                 "mock (offline, deterministic, not an AI)",
-                "For a real tutor: `mentor init` and choose anthropic or openai.",
+                "For a real tutor: `mentor init` and sign in with ChatGPT, or use an API key.",
             )
         )
+    elif provider == "chatgpt":
+        add(_chatgpt_check(paths))
     else:
         lookup = get_api_key(provider)
         add(
@@ -178,6 +198,7 @@ def run_checks(paths: AppPaths | None = None) -> list[CheckResult]:
                 "" if lookup.key else f"Run `mentor key set {provider}` or export {ENV_VARS[provider]}.",
             )
         )
+    if provider != "mock":
         add(
             CheckResult(
                 "Model",

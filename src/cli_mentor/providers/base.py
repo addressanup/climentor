@@ -98,11 +98,14 @@ ErrorKind = Literal[
 class ProviderError(Exception):
     """A provider failure with a learner-safe message (never contains the key)."""
 
-    def __init__(self, kind: ErrorKind, message: str, retry_after: float | None = None) -> None:
+    def __init__(
+        self, kind: ErrorKind, message: str, retry_after: float | None = None, hint: str | None = None
+    ) -> None:
         super().__init__(message)
         self.kind = kind
         self.message = message
         self.retry_after = retry_after
+        self.hint = hint  # replaces the generic advice for this kind, e.g. “Run `mentor login`.”
 
     def user_message(self) -> str:
         hints = {
@@ -114,7 +117,7 @@ class ProviderError(Exception):
             "not_configured": "Run `mentor init` to choose a provider, key, and model.",
             "unknown": "Unexpected provider error.",
         }
-        text = f"{self.message} {hints[self.kind]}"
+        text = f"{self.message} {self.hint if self.hint is not None else hints[self.kind]}"
         if self.retry_after:
             text += f" Try again in about {self.retry_after:.0f}s."
         return text

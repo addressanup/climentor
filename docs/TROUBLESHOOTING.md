@@ -17,6 +17,12 @@ Start with `mentor doctor`. It lists each problem with a fix.
 | "No API key for anthropic/openai" | Key not in env or Keychain | `mentor key set anthropic` (or `openai`), or export the env var |
 | "The provider rejected the request" | Wrong model id | `mentor init` and pick a model from the list, or `/model list` |
 | "rate limit reached" | Provider asked us to slow down | Wait the suggested time; retries are already bounded |
+| "You are not signed in to ChatGPT" | No sign-in yet, or you ran `mentor logout` | `mentor login` |
+| "Your ChatGPT sign-in has expired" | Not used for about 30 days, or disconnected in ChatGPT settings | `mentor login` |
+| "did not allow CLI Mentor to use your ChatGPT plan" | The plan permission was not ticked during sign-in | `mentor login` again and allow it, or use an API key |
+| "Usage limit reached for your ChatGPT plan" | Your plan's limit, or a limit you set for CLI Mentor | Review it at https://chatgpt.com/settings/usage, or wait |
+| "That is a different ChatGPT account" | Signed in with another account than the first time | `mentor logout --forget`, then `mentor login` |
+| The browser never comes back after ChatGPT sign-in | The return page runs on `127.0.0.1` on this Mac; a browser on another computer cannot reach it | Sign in with a browser on the same Mac; press `c` in setup to copy the link |
 | macOS asks to allow Keychain access | First use of the stored key | Click "Allow" (or "Always Allow" for the Python that runs CLI Mentor) |
 | Socket path too long | Very long `$TMPDIR` | `export CLI_MENTOR_RUNTIME_DIR=/tmp/cm-$USER` |
 | Esc feels slow in Neovim | tmux escape delay | Our tmux config sets `escape-time 10`; your `~/.tmux.conf` may override it |

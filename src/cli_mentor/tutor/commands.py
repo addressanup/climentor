@@ -439,8 +439,13 @@ async def _model(engine: Engine, args: list[str]) -> None:
         est = u["input"] / 1e6 * settings.input_price_per_mtok + u["output"] / 1e6 * settings.output_price_per_mtok
         cost = f"\nEstimated cost (from YOUR configured prices): ${est:.4f}"
     kind = "offline mock (no network)" if not p.makes_network_calls else "real provider (network)"
+    plan = ""
+    if p.name == "chatgpt":
+        from ..chatgpt_auth import USAGE_URL
+
+        plan = f"\nUsing your ChatGPT plan. Manage usage: {USAGE_URL}"
     engine.ui.note(
         f"Provider: **{p.name}** ({kind}) · model: `{p.model}`\n"
         f"This session: {u['calls']} call(s), {u['input']} input + {u['output']} output tokens"
-        f"{' (some estimated)' if u['estimated_calls'] else ' (reported by the provider)'}{cost}"
+        f"{' (some estimated)' if u['estimated_calls'] else ' (reported by the provider)'}{cost}{plan}"
     )

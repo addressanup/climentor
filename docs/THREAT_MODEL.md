@@ -7,7 +7,7 @@
 - The learner's unsaved work (Neovim buffers, running jobs).
 - The integrity of observation (no forged events, no forged verification).
 - The learner's other tmux sessions, editors, and processes.
-- The model API key.
+- The model API key, and the ChatGPT sign-in tokens.
 
 ## Who or what might cause harm
 
@@ -21,6 +21,7 @@
 | Learner code during verification | Python exercise imports run arbitrary code. | Off until the learner grants "run learner code"; `python -I`, clean environment (no keys), timeout, CPU and file-size limits, own process group killed afterwards. **This is host execution, not a sandbox.** |
 | Leaking secrets to the provider | `.env` opened in Neovim, `export TOKEN=...` typed. | Capture minimisation first (scope, deny lists, sensitive buffer skip, leading-space commands ignored), then best-effort redaction. Redaction is not a guarantee. |
 | Key leakage | Key in logs, exports, prompts. | Key read only at client construction; never stored in config, DB, logs, exports, or prompt; log filter masks known key shapes; tests assert absence. |
+| Stolen or forged ChatGPT sign-in | Another local program answers the sign-in return page first, or a fake sign-in identity is accepted. | Return page only on `127.0.0.1`, exact path and Host, fresh random `state` (constant-time compare), PKCE, single use; requests with a wrong `state` are refused without ending the sign-in. The ID token's signature is checked against OpenAI's published keys, with issuer, audience, expiry and nonce. A sign-in that returns a different account never replaces the saved one. Tokens live only in the Keychain; signed tokens are masked in logs; no redirects are followed when sending to OpenAI. Token renewals are serialised with a file lock so two windows cannot race the rotating refresh token. |
 | Destroying work | Tutor quits and kills Neovim with unsaved edits. | End-session checks unsaved buffers and foreground jobs and refuses unless confirmed. Only our own tmux session on our own server is ever killed. |
 | Feedback loops | Tutor reacts to its own output. | Tutor pane output discarded by pane ID; tutor events never trigger the policy. |
 
@@ -44,6 +45,8 @@
 - Neovim RPC is never exposed on a network interface; our IPC is a Unix socket.
 - The only network traffic is to the configured model provider, and only when a
   real provider is configured. The mock provider makes no network calls.
+- ChatGPT sign-in also talks to `auth.openai.com` (sign-in, token renewal,
+  sign-out) and listens briefly on `127.0.0.1` for the browser's return.
 
 ## Residual risks (stated honestly)
 

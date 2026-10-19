@@ -15,7 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .paths import write_private_file
 
-ProviderName = Literal["mock", "anthropic", "openai"]
+ProviderName = Literal["mock", "anthropic", "openai", "chatgpt"]
 TeachingMode = Literal["guided", "practice", "project", "assessment", "review", "quiet"]
 
 DEFAULT_WORKSPACE = "~/cli-mentor-workspace"
@@ -63,6 +63,8 @@ class RetentionSettings(_Model):
 class Providers(_Model):
     anthropic: ProviderSettings = ProviderSettings()
     openai: ProviderSettings = ProviderSettings()
+    # The learner's ChatGPT plan (Sign in with ChatGPT). Reasoning models can pause before replying.
+    chatgpt: ProviderSettings = ProviderSettings(timeout_seconds=120.0)
     mock: ProviderSettings = ProviderSettings(model="mock-tutor")
 
 

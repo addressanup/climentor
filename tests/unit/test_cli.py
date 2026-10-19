@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Iterator
+import time
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import pytest
 
 from cli_mentor import cli
+from cli_mentor.chatgpt_auth import PLAN_SCOPE, Account, ChatGPTAuth
 from cli_mentor.config import Config, load_config
 from cli_mentor.db.store import open_store
 from cli_mentor.memory.profile import Profile
@@ -76,6 +78,62 @@ def test_init_real_provider_stores_key_in_keychain_not_config(
     assert memory_keyring.get_password("cli-mentor", "openai") == "sk-proj-ABCDEFGHIJKLMNOPQRSTUV"  # type: ignore[attr-defined]
     cfg = load_config(paths.config_file)
     assert cfg.tutor.provider == "openai" and cfg.providers.openai.model == "my-model-id"
+
+
+async def fake_sign_in(
+    self: ChatGPTAuth, on_url: Callable[[str], None] | None = None, *, timeout: float = 600.0
+) -> Account:
+    """Stands in for the browser sign-in: saves a ChatGPT account that may use its plan."""
+    if on_url:
+        on_url("https://auth.openai.com/api/accounts/authorize?client_id=dynamic_agent_client")
+    account = Account(
+        "oaiapp_test",
+        "user-1",
+        "learner@example.com",
+        scopes=[PLAN_SCOPE],
+        access_token="access",
+        refresh_token="refresh",
+        expires_at=time.time() + 3600,
+    )
+    self.store.save(account)
+    return account
+
+
+def test_plain_init_with_chatgpt_signs_in_without_a_key(
+    mentor_env: dict[str, str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    paths = AppPaths.from_env()
+    monkeypatch.setattr(ChatGPTAuth, "sign_in", fake_sign_in)
+    monkeypatch.setattr("getpass.getpass", lambda _p: pytest.fail("ChatGPT needs no API key"))
+    said: list[str] = []
+    #  folder, 8 facts, style, note, observation, provider, Continue with ChatGPT, fetch list?, model, allow sending
+    script = answers("y", *[""] * 8, "", "", "n", "chatgpt", "", "n", "gpt-test", "y")
+    run_init(paths, Config(), workspace=str(tmp_path / "w"), ask=lambda _p: next(script), say=said.append)
+    assert any("You're using your ChatGPT plan" in s for s in said)
+    cfg = load_config(paths.config_file)
+    assert cfg.tutor.provider == "chatgpt" and cfg.providers.chatgpt.model == "gpt-test"
+    assert PermissionManager(open_store(paths.db_file), "s").check(Capability.NETWORK, "chatgpt").allowed
+
+
+def test_login_and_logout_commands(
+    mentor_env: dict[str, str], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert cli.main(["logout"]) == 0
+    assert "not signed in" in capsys.readouterr().out
+    monkeypatch.setattr(ChatGPTAuth, "sign_in", fake_sign_in)
+    assert cli.main(["login"]) == 0
+    out = capsys.readouterr().out
+    assert "You're using your ChatGPT plan. Signed in as learner@example.com" in out
+    assert "chatgpt.com/settings/usage" in out and "mentor init --provider chatgpt" in out
+
+    async def revoked(self: ChatGPTAuth, *, forget: bool = False) -> bool:
+        self.store.delete()
+        return True
+
+    monkeypatch.setattr(ChatGPTAuth, "sign_out", revoked)
+    assert cli.main(["logout", "--forget"]) == 0
+    assert "Signed out of ChatGPT" in capsys.readouterr().out
+    assert ChatGPTAuth(AppPaths.from_env()).account() is None
 
 
 def test_cli_commands(mentor_env: dict[str, str], tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:

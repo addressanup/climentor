@@ -21,6 +21,7 @@ KeySource = Literal["env", "keychain", "none"]
 KEY_PATTERNS = [
     re.compile(r"sk-ant-[A-Za-z0-9_\-]{10,}"),
     re.compile(r"sk-(?:proj-|svcacct-)?[A-Za-z0-9_\-]{16,}"),
+    re.compile(r"eyJ[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}"),  # signed tokens (ChatGPT sign-in)
 ]
 
 

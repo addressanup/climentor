@@ -2,6 +2,7 @@
 # Real location: ~/.config/cli-mentor/config.toml (created by `mentor init`).
 # Secrets do NOT belong here. API keys live in the macOS Keychain
 # (`mentor key set anthropic`) or in ANTHROPIC_API_KEY / OPENAI_API_KEY.
+# A ChatGPT sign-in (`mentor login`) is also kept in the Keychain.
 
 schema_version = 1
 initialized = true
@@ -11,7 +12,7 @@ workspace_root = "~/cli-mentor-workspace"
 extra_roots = []
 
 [tutor]
-provider = "mock"            # "mock" (offline demo), "anthropic", or "openai"
+provider = "mock"            # "mock" (offline demo), "chatgpt" (your ChatGPT plan), "anthropic", or "openai"
 mode = "guided"              # guided | practice | project | assessment | review | quiet
 unsolicited_cooldown_seconds = 60.0
 debounce_seconds = 2.0       # wait for a quiet moment before speaking unasked
@@ -35,6 +36,11 @@ max_output_tokens = 1024
 max_context_tokens = 24000
 timeout_seconds = 60.0
 max_retries = 2
+
+[providers.chatgpt]
+model = ""                   # pick one with `mentor init` (from your plan's own list)
+timeout_seconds = 120.0      # reasoning models can pause before they reply
+# max_output_tokens is not used: ChatGPT plan requests may not set it.
 
 [providers.mock]
 model = "mock-tutor"

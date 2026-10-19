@@ -47,7 +47,8 @@ repeated failure, exercise result), never per keystroke.
 | `cli.py` | `mentor` command-line entry point (argparse). |
 | `paths.py` | XDG directories, private runtime directory, permission checks. |
 | `config.py` | Validated TOML configuration (no secrets). |
-| `secrets.py` | API keys from macOS Keychain (`keyring`) or environment. |
+| `apikeys.py` | API keys from macOS Keychain (`keyring`) or environment. |
+| `chatgpt_auth.py` | Sign in with ChatGPT (OpenAI's flow for open-source apps): browser sign-in with PKCE and a one-shot `127.0.0.1` return page, ID-token signature check, Keychain storage, locked token renewal, sign-out. |
 | `doctor.py` | Dependency checks with fix instructions. Installs nothing. |
 | `lifecycle.py` | Create/attach/stop the dedicated tmux session; cleanup of owned resources only. |
 | `permissions.py` | Capabilities, scoped grants, deterministic decisions. |
@@ -57,7 +58,7 @@ repeated failure, exercise result), never per keystroke.
 | `state/` | Reducers that project events into `WorkspaceState`. |
 | `nvim/` | The Lua plugin shipped as package data. |
 | `tutor/` | Engine (orchestrator), policy, context, prompts, staleness, model actions. |
-| `providers/` | Provider interface, mock, Anthropic, OpenAI. |
+| `providers/` | Provider interface, mock, Anthropic, OpenAI, and the ChatGPT plan (Responses API). |
 | `curriculum/` | Lesson schema, loader, trusted verifiers per track. |
 | `memory/` | Profile, evidence, skill states, review schedule, export, retention. |
 | `ui/` | Textual tutor pane (`app.py`), full-screen setup (`setup.py`), shared header widgets (`widgets.py`), terminal-colour theme (`theme.py`). |

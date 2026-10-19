@@ -38,7 +38,10 @@ class StatusInfo:
 
     @property
     def model_words(self) -> str:
-        return "offline mock" if self.mock else (self.model or self.provider)
+        if self.mock:
+            return "offline mock"
+        # OpenAI asks apps to say when the learner's ChatGPT plan is paying.
+        return f"{self.model} · using ChatGPT plan" if self.provider == "chatgpt" else (self.model or self.provider)
 
     def problems(self) -> list[str]:
         """Sources that are connected but not in sync, in words (empty when all is well)."""

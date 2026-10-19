@@ -8,7 +8,7 @@ from the project folder.
 | Command | What it does |
 |---|---|
 | `mentor doctor [--json]` | Checks tools, versions, folders, and settings. Prints fixes. Installs nothing. |
-| `mentor init [--yes] [--plain] [--provider mock\|anthropic\|openai] [--model ID] [--workspace PATH] [--base-url URL]` | Setup in five short steps: practice folder, about you (confirm, edit, or remove each guess), how often the tutor speaks up, AI model (Anthropic, OpenAI, an OpenAI-compatible service such as DeepSeek, or skip), review. At a terminal it opens full screen (Enter continues, Space ticks, ↑ ↓ choose, Esc goes back, Ctrl+C quits without saving) and offers to start your first session at the end. `--plain` asks plain questions instead; `--yes` accepts defaults (for scripts). |
+| `mentor init [--yes] [--plain] [--provider mock\|chatgpt\|anthropic\|openai] [--model ID] [--workspace PATH] [--base-url URL]` | Setup in five short steps: practice folder, about you (confirm, edit, or remove each guess), how often the tutor speaks up, AI model (your ChatGPT plan through "Continue with ChatGPT", Anthropic, OpenAI, an OpenAI-compatible service such as DeepSeek, or skip), review. At a terminal it opens full screen (Enter continues, Space ticks, ↑ ↓ choose, Esc goes back, Ctrl+C quits without saving) and offers to start your first session at the end. `--plain` asks plain questions instead; `--yes` accepts defaults (for scripts). |
 | `mentor start [--subject N\|NAME] [--new] [--provider P] [--detach] [--nested]` | First time: opens the setup above, then your first session. After that: if you have subjects, asks which one to continue (or a new one), then opens its session with the panes in that subject's folder. `--subject` picks without asking, `--new` starts a new subject. `--provider` overrides the config for this session only. |
 | `mentor subjects` | Lists your learning subjects, their progress, and their folders. |
 | `mentor resume [SESSION] [--detach] [--nested]` | Re-attaches. Restarts the tutor pane if it crashed. Rebuilds the panes if tmux was closed; learning state is kept. |
@@ -19,6 +19,8 @@ from the project folder.
 | `mentor export [--out FILE] [--include-events] [--no-transcripts]` | Exports your data as JSON. No API keys. |
 | `mentor delete-session SESSION [--with-evidence] [--yes]` | Deletes one session's observations, transcript, model suggestions, usage (and evidence if asked), then compacts the database. |
 | `mentor key set\|delete\|status anthropic\|openai` | Manages the API key in the macOS Keychain. The value is never printed. |
+| `mentor login` | Signs in with ChatGPT so the tutor uses your ChatGPT plan (no API key). Opens your browser; you sign in and allow CLI Mentor to use your plan. The sign-in is kept in the macOS Keychain and renews by itself. Manage usage at https://chatgpt.com/settings/usage. |
+| `mentor logout [--forget]` | Signs out of ChatGPT: asks OpenAI to end the sign-in, then removes it from the Keychain. `--forget` also forgets CLI Mentor's app registration, so the next `mentor login` can use a different ChatGPT account. |
 | `mentor demo [--detach] [--nested]` | Offline demo: real tmux, Neovim and zsh; the MOCK tutor; separate demo data. The mock cannot design learning plans. |
 | `mentor --version` | Prints the version. |
 

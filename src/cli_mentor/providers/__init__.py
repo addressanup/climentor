@@ -19,6 +19,16 @@ def build_provider(config: Config, name: ProviderName | None = None) -> Provider
         fixture = os.environ.get("CLI_MENTOR_MOCK_FIXTURE")  # recorded plan answers for tests/demos
         behaviour = MockBehaviour.from_fixture(fixture) if fixture else None
         return MockProvider(settings.model or "mock-tutor", behaviour)
+    if chosen == "chatgpt":
+        from ..chatgpt_auth import ChatGPTAuth
+        from ..paths import AppPaths
+        from .chatgpt_provider import ChatGPTProvider
+
+        auth = ChatGPTAuth(AppPaths.from_env())
+        account = auth.account()
+        if account is None or not account.signed_in:
+            raise ProviderError("not_configured", "You are not signed in to ChatGPT.", hint="Run `mentor login`.")
+        return ChatGPTProvider(auth, settings)
     lookup = get_api_key(chosen)
     if lookup.key is None:
         raise ProviderError(

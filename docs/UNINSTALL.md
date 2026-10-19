@@ -11,12 +11,15 @@ before running it.
    tmux -L cli-mentor kill-server
    ```
 
-2. Remove the API keys from the Keychain:
+2. Remove the API keys and the ChatGPT sign-in from the Keychain:
 
    ```sh
    mentor key delete anthropic
    mentor key delete openai
+   mentor logout --forget
    ```
+
+   To be sure, also disconnect CLI Mentor at <https://chatgpt.com/settings/usage>.
 
 3. Remove the command (if you installed it with uv):
 

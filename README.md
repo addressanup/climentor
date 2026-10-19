@@ -65,16 +65,28 @@ Each subject gets its own folder and conversation. Next time, `mentor start`
 asks which subject to continue (or start a new one); `mentor subjects` lists them.
 Move between panes with **Ctrl+b** then an arrow key. Quit with **Ctrl+Q**.
 
-Learning plans need a real AI model (your own key). `uv run mentor demo`
-shows the program with an offline **mock** tutor, but the mock cannot design
-plans.
+Learning plans need a real AI model: your ChatGPT plan or your own API key.
+`uv run mentor demo` shows the program with an offline **mock** tutor, but the
+mock cannot design plans.
 
 Optional: put `mentor` on your PATH with `uv tool install --editable .`
 (this writes to `~/.local/bin`).
 
+### Using your ChatGPT plan (no API key)
+
+Choose **ChatGPT plan** in `mentor init` (or run `uv run mentor login`). Your
+browser opens; sign in to ChatGPT and allow CLI Mentor to use your plan. This
+is OpenAI's official "Sign in with ChatGPT" for open-source apps, and it draws
+on the same plan usage as Codex. Then pick a model from your plan's list.
+
+- The sign-in is kept in the **macOS Keychain** and renews by itself.
+- Tutor replies count toward your plan. See or limit them at
+  <https://chatgpt.com/settings/usage>.
+- `mentor logout` signs out (`--forget` also lets you switch accounts).
+
 ### Using a real AI tutor (bring your own key)
 
-`mentor init` offers Anthropic, OpenAI, or another service that works like
+`mentor init` also offers Anthropic, OpenAI, or another service that works like
 OpenAI (for example DeepSeek: type its address, such as
 `https://api.deepseek.com`). It stores the key in the **macOS Keychain** (or
 reads `ANTHROPIC_API_KEY` / `OPENAI_API_KEY`) and lets you pick a model from

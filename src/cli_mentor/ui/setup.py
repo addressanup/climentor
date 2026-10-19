@@ -2,17 +2,19 @@
 
 Five short steps: practice folder, about you, how the tutor helps, AI model,
 and review. Nothing is saved until the review step, except an API key you
-paste: that goes straight into the macOS Keychain, never into a file.
+paste or a ChatGPT sign-in: those go straight into the macOS Keychain, never
+into a file.
 
 Keys: Enter continues, Space ticks a box, ↑ ↓ choose, Esc goes back.
 """
 
 from __future__ import annotations
 
+import subprocess
 from collections.abc import Awaitable, Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import ClassVar, cast
+from typing import ClassVar, Protocol, cast
 
 from textual import on
 from textual.app import App, ComposeResult
@@ -26,6 +28,7 @@ from textual.widgets.option_list import Option
 from textual.widgets.selection_list import Selection
 
 from ..apikeys import get_api_key, set_api_key
+from ..chatgpt_auth import PLAN_OFF, USAGE_URL, Account, ChatGPTAuth, SignInError
 from ..config import Config, ProviderName
 from ..db.store import open_store
 from ..memory.profile import Profile
@@ -36,6 +39,17 @@ from .theme import mentor_theme, terminal_is_light
 from .widgets import Line, ProgressRule, Segment
 
 FetchModels = Callable[[Config, ProviderName], Awaitable[list[str]]]
+
+
+class ChatGPTSignIn(Protocol):
+    """What setup needs from ChatGPT sign-in (``ChatGPTAuth``, or a fake in tests)."""
+
+    open_browser: Callable[[str], object]
+
+    def account(self) -> Account | None: ...
+
+    async def sign_in(self, on_url: Callable[[str], None] | None = None, *, timeout: float = 600.0) -> Account: ...
+
 
 STEPS = ("Practice folder", "About you", "How I help", "AI model", "Review")
 STEP_NOTES = (
@@ -51,12 +65,24 @@ STYLES = (
     ("proactive", "Proactive", "I point things out sooner."),
 )
 PROVIDERS = (
-    ("anthropic", "Anthropic (Claude)"),
-    ("openai", "OpenAI"),
-    ("compatible", "Another service that works like OpenAI (DeepSeek and others)"),
+    ("chatgpt", "ChatGPT plan: sign in with your ChatGPT account, no API key (the plan Codex uses)"),
+    ("anthropic", "Anthropic (Claude), with an API key"),
+    ("openai", "OpenAI, with an API key"),
+    ("compatible", "Another service that works like OpenAI (DeepSeek and others), with an API key"),
     ("mock", "Skip for now: offline demo only, it cannot make plans"),
 )
-PROVIDER_NAMES = {"anthropic": "Anthropic", "openai": "OpenAI", "compatible": "OpenAI-compatible service"}
+PROVIDER_NAMES = {
+    "chatgpt": "ChatGPT plan",
+    "anthropic": "Anthropic",
+    "openai": "OpenAI",
+    "compatible": "OpenAI-compatible service",
+}
+
+
+def ready_account(auth: ChatGPTSignIn) -> Account | None:
+    """The ChatGPT sign-in, if it can already pay for tutor replies."""
+    account = auth.account()
+    return account if account is not None and account.signed_in and account.plan_enabled else None
 
 
 @dataclass
@@ -389,12 +415,13 @@ class ModelStep(Step):
     def body(self) -> Iterator[Widget]:
         app = self.setup
         yield self.text(
-            "I need an AI model to plan lessons and answer you. You use your own API key. "
-            "I keep it in the macOS Keychain, never in a file."
+            "I need an AI model to plan lessons and answer you. Sign in with your ChatGPT plan, "
+            "or use your own API key. I keep keys and sign-ins in the macOS Keychain, never in a file."
         )
         choices = OptionList(*(Option(label, id=key) for key, label in PROVIDERS), id="provider")
         choices.highlighted = next(i for i, p in enumerate(PROVIDERS) if p[0] == app.choice)
         yield choices
+        yield Line(id="account", classes="label")
         with Vertical(id="address-box"):
             yield self.text("Service address", "label")
             yield Input(app.address, id="address", placeholder="https://api.deepseek.com")
@@ -424,8 +451,26 @@ class ModelStep(Step):
         choice = self.choice
         slot: ProviderName = "anthropic" if choice == "anthropic" else "openai"
         self.query_one("#address-box").display = choice == "compatible"
-        self.query_one("#key-box").display = choice != "mock"
+        self.query_one("#key-box").display = choice not in ("mock", "chatgpt")
+        self.query_one("#account").display = choice == "chatgpt"
         self.query_one("#network").display = choice != "mock"
+        self.error([])
+        account = ready_account(self.setup.auth) if choice == "chatgpt" else None
+        # OpenAI's wording for the action that starts ChatGPT sign-in.
+        self.query_one("#next", Button).label = (
+            "Continue with ChatGPT" if choice == "chatgpt" and account is None else "Continue"
+        )
+        if choice == "chatgpt":
+            self.query_one("#account", Line).show(
+                [
+                    ("✓ ", "$success"),
+                    (f"Signed in as {account.label}. ", "bold"),
+                    ("Your plan pays for replies.", "dim"),
+                ]
+                if account
+                else [("Your browser opens so you can sign in and allow CLI Mentor to use your plan.", "dim")]
+            )
+            return
         found = get_api_key(slot)
         key = self.query_one("#key", Input)
         if found.key:
@@ -438,7 +483,6 @@ class ModelStep(Step):
         else:
             self.query_one("#key-label", Line).show([("API key", "bold"), ("  hidden as you type", "dim")])
             key.placeholder = "Paste your API key"
-        self.error([])
 
     def fields(self) -> list[Widget]:
         return [w for w in super().fields() if w.display and (w.parent is None or w.parent.display)]
@@ -449,6 +493,13 @@ class ModelStep(Step):
         if choice == "mock":
             app.answers.provider, app.answers.model, app.answers.allow_network = "mock", "", False
             self.app.push_screen(ReviewStep())
+            return
+        if choice == "chatgpt":
+            app.answers.provider, app.answers.base_url = "chatgpt", None
+            app.answers.allow_network = self.query_one("#network", Tick).value
+            if changed:
+                app.answers.model = app.config.provider_settings("chatgpt").model
+            self.app.push_screen(ModelPickStep() if ready_account(app.auth) else SignInStep())
             return
         slot: ProviderName = "anthropic" if choice == "anthropic" else "openai"
         address = self.query_one("#address", Input).value.strip().rstrip("/")
@@ -475,6 +526,105 @@ class ModelStep(Step):
         self.app.push_screen(ModelPickStep())
 
 
+class SignInStep(Step):
+    """Continue with ChatGPT: the browser signs in, this page waits and confirms."""
+
+    number = 4
+    heading = "Continue with ChatGPT"
+    BINDINGS: ClassVar[list[BindingType]] = [
+        Binding("c", "copy_link", show=False),
+        Binding("o", "open_link", show=False),
+    ]
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.url = ""
+        self.account: Account | None = None
+        self.waiting = False
+
+    def button_labels(self) -> tuple[str, str | None]:
+        return "Waiting…", "Back"
+
+    def key_hints(self) -> str:
+        if self.account:
+            return "Enter continue · Esc back"
+        if self.waiting:
+            return "c copy the link · o open the browser again · Esc back"
+        return "Enter try again · Esc back"
+
+    def body(self) -> Iterator[Widget]:
+        yield self.text(
+            "Your browser is opening. Sign in to ChatGPT, then allow CLI Mentor to use your plan. "
+            "Come back here when the browser says you are signed in.",
+            "text intro",
+        )
+        yield LoadingIndicator(id="loading")
+        yield Line(id="link", classes="text")
+        yield Line(id="error")
+
+    def on_mount(self) -> None:
+        super().on_mount()
+        self.start()
+
+    def start(self) -> None:
+        self.waiting = True
+        self.error([])
+        self.query_one("#loading").display = True
+        self.query_one("#next", Button).label = "Waiting…"
+        self.query_one("#keys", Line).show([(self.key_hints(), "dim")])
+        self.run_worker(self._sign_in(), exclusive=True)
+
+    def _got_url(self, url: str) -> None:
+        self.url = url
+        self.query_one("#link", Line).show(
+            [("If the browser did not open, press c to copy the link, or o to try again.", "dim")]
+        )
+
+    async def _sign_in(self) -> None:
+        try:
+            account = await self.setup.auth.sign_in(self._got_url)
+        except SignInError as exc:
+            self.error([("✗ ", "$error"), (exc.message, "")])
+        except Exception as exc:  # e.g. no local port for the browser to come back to
+            self.error([("✗ ", "$error"), (f"Could not finish the sign-in ({type(exc).__name__}).", "")])
+        else:
+            if account.plan_enabled:
+                self.account = account
+                self.query_one("#heading", Static).update("You're using your ChatGPT plan")
+                self.query_one(".intro", Static).update(
+                    f"Signed in as {account.label}. Tutor replies will use your ChatGPT plan. "
+                    f"Manage usage any time at {USAGE_URL}"
+                )
+                self.query_one("#link", Line).show([])
+            else:
+                self.error([("✗ ", "$error"), (PLAN_OFF, "")])
+        # Not reached when Esc leaves this page: the sign-in is cancelled and the page is gone.
+        self.waiting = False
+        self.query_one("#loading").display = False
+        self.query_one("#next", Button).label = "Got it" if self.account else "Try again"
+        self.query_one("#keys", Line).show([(self.key_hints(), "dim")])
+        self.query_one("#next", Button).focus()
+
+    def action_copy_link(self) -> None:
+        if not self.url:
+            return
+        try:
+            subprocess.run(["pbcopy"], input=self.url.encode(), check=True, timeout=5)
+        except (OSError, subprocess.SubprocessError):
+            self.app.copy_to_clipboard(self.url)
+        self.query_one("#link", Line).show([("✓ ", "$success"), ("Link copied. Paste it into your browser.", "dim")])
+
+    def action_open_link(self) -> None:
+        if self.url:
+            self.setup.auth.open_browser(self.url)
+
+    def submit(self) -> None:
+        if self.account:
+            self.app.push_screen(ModelPickStep())
+        elif not self.waiting:
+            self.start()
+
+
 class ModelPickStep(Step):
     number = 4
     heading = "Choose a model"
@@ -494,10 +644,12 @@ class ModelPickStep(Step):
     def on_mount(self) -> None:
         super().on_mount()
         self.query_one("#models").display = False
-        where = server_address(self.setup.config, self.setup.answers.provider)
-        self.query_one("#where", Line).show(
-            [("Asking ", "dim"), (where, "bold"), (" which models it offers. This signs in with your key.", "dim")]
+        chatgpt = self.setup.answers.provider == "chatgpt"
+        where = "ChatGPT" if chatgpt else server_address(self.setup.config, self.setup.answers.provider)
+        how = (
+            " which models your plan includes." if chatgpt else " which models it offers. This signs in with your key."
         )
+        self.query_one("#where", Line).show([("Asking ", "dim"), (where, "bold"), (how, "dim")])
         self.run_worker(self._load(where), exclusive=True)
 
     async def _load(self, where: str) -> None:
@@ -508,12 +660,16 @@ class ModelPickStep(Step):
                 [(where, "bold"), (f" offers {len(self.models)} models. Pick one, or type to filter.", "dim")]
             )
         except ProviderError as exc:
-            hint = (
-                " Check that the key belongs to this service and the address is right (Esc goes back)."
-                if exc.kind == "auth"
-                else ""
-            )
-            self.error([("✗ ", "$error"), (exc.message + hint, ""), ("\nYou can still type a model id above.", "dim")])
+            if app.answers.provider == "chatgpt":
+                text = exc.user_message()
+            elif exc.kind == "auth":
+                text = (
+                    exc.message
+                    + " Check that the key belongs to this service and the address is right (Esc goes back)."
+                )
+            else:
+                text = exc.message
+            self.error([("✗ ", "$error"), (text, ""), ("\nYou can still type a model id above.", "dim")])
         except Exception as exc:  # network trouble of any kind: explain, let them type an id
             self.error([("✗ ", "$error"), (f"Could not reach {where} ({type(exc).__name__}).", "")])
         finally:
@@ -570,10 +726,11 @@ class ReviewStep(Step):
             profile = f"{kept} kept ({changed} in your words), {len(values) - kept} removed"
         else:
             profile = "already set"
+        account = ready_account(app.auth) if a.provider == "chatgpt" else None
         if a.provider == "mock":
             model = "none yet: offline demo only"
         else:
-            where = f" at {a.base_url}" if a.base_url else ""
+            where = f" at {a.base_url}" if a.base_url else f" ({account.label})" if account else ""
             model = f"{PROVIDER_NAMES[app.choice]} · {a.model}{where}"
         rows = [
             ("Practice folder", folder),
@@ -585,6 +742,8 @@ class ReviewStep(Step):
         ]
         if a.provider != "mock":
             rows.append(("Sending to it", "allowed" if a.allow_network else "I ask the first time"))
+        if account:
+            rows.append(("Usage", f"your ChatGPT plan · {USAGE_URL.removeprefix('https://')}"))
         segments: list[Segment] = []
         for label, value in rows:
             segments += [(f"{label:<17}", "dim"), (value, "bold"), ("\n", "")]
@@ -683,19 +842,21 @@ class SetupApp(App[SetupResult]):
         fetch: FetchModels = fetch_models,
         then_start: bool = False,
         light: bool | None = None,
+        auth: ChatGPTSignIn | None = None,
     ) -> None:
         super().__init__()
         self.paths = paths
         self.config = config
+        self.auth: ChatGPTSignIn = auth or ChatGPTAuth(paths)
         self.store = open_store(paths.db_file)
         self.facts = proposed_facts(Profile(self.store))
         self.edits: dict[str, str] = {}
         chosen = provider or config.tutor.provider
         url = config.provider_settings(chosen).base_url if base_url is None else base_url
-        # A PROVIDERS key. New setups start on a real model: the offline demo cannot teach.
+        # A PROVIDERS key. New setups start on the ChatGPT plan: no key to find, and the offline demo cannot teach.
         self.choice: str = "compatible" if chosen == "openai" and url else chosen
         if self.choice == "mock" and provider is None and not config.initialized:
-            self.choice = "anthropic"
+            self.choice = chosen = "chatgpt"  # and suggest its model, not the offline demo's
         self.address = url or ""
         self.answers = SetupAnswers(
             workspace=str(Path(workspace or config.workspace_root).expanduser()),

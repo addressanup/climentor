@@ -76,9 +76,10 @@ Test evidence is listed in `STATUS.md`.
 | Mock provider (deterministic, offline, labelled) | Done | |
 | Anthropic (official SDK, streaming, tools) | Done (offline-tested) | SDK paths tested with recorded streams; live test needs your key |
 | OpenAI (official SDK, Chat Completions, tools) | Done (offline-tested) | Same; `base_url` for compatible servers is unverified |
+| ChatGPT plan through Sign in with ChatGPT (no API key) | Done (offline-tested) | OpenAI's flow for open-source apps; Responses API with `store: false`, tools in a namespace; `mentor login`/`logout`; a real sign-in and reply are not yet tested |
 | Timeouts, bounded retries, rate-limit messages, cancellation | Done | |
 | Usage accounting; estimated vs actual labelled | Done | Cost only from your configured prices |
-| Keys in Keychain or env; never in config/logs/exports/prompts | Done | |
+| Keys in Keychain or env; never in config/logs/exports/prompts | Done | The ChatGPT sign-in is kept in the Keychain too |
 
 ## Learning plans and verification
 

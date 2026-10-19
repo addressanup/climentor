@@ -165,3 +165,25 @@ The model only decides *when* to check; trusted code still decides *whether*
 the work passed, and model verdicts stay "unverified". A short message that
 might be the answer is tried quietly first; a wrong guess records no failure.
 Slash commands remain as optional shortcuts and are never suggested.
+
+## 2026-10-19 — ChatGPT plan through Sign in with ChatGPT, not Codex's login
+Learner request: use OpenAI models through the Codex (ChatGPT) subscription.
+OpenAI documents a flow for open-source, locally run apps
+(developers.openai.com/siwc/token-sharing-open-source): the first sign-in
+registers the app (`client_id=dynamic_agent_client`, `agent_name_hint`, a
+stable random `ext_agent_host_id`), then requests go to the public Responses
+API with the user's access token. We use that instead of copying Codex's own
+login (its client id, `~/.codex/auth.json`, or `chatgpt.com/backend-api`):
+OpenAI says not to use those endpoints for this, and sharing Codex's rotating
+refresh token would sign Codex out.
+- Tokens are one JSON item in the Keychain (service `cli-mentor`, account
+  `chatgpt`), like API keys, not the docs' example file.
+- The ID token's signature is verified (PyJWT with `cryptography`, added for
+  this), as the docs require.
+- Requests follow the preview limits: `store: false`, `stream: true`,
+  `instructions` for the system prompt, function tools grouped in one
+  namespace, no `max_output_tokens`/`temperature`, no retries on 429.
+- One ChatGPT account at a time. `mentor logout --forget` drops the
+  registration so another account can sign in.
+- The tutor status shows "using ChatGPT plan", and usage errors link to
+  chatgpt.com/settings/usage, following OpenAI's UI guidelines.

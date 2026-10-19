@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
+import time
+from collections.abc import Callable
 from pathlib import Path
 
 from textual.screen import Screen
-from textual.widgets import Input
+from textual.widgets import Button, Input
 
+from cli_mentor.chatgpt_auth import PLAN_SCOPE, Account, SignInError
 from cli_mentor.config import Config, ProviderName, load_config
 from cli_mentor.db.store import open_store
 from cli_mentor.memory.profile import Profile
@@ -23,6 +27,7 @@ from cli_mentor.ui.setup import (
     ReviewStep,
     SetupApp,
     SetupResult,
+    SignInStep,
     StyleStep,
     describe_folder,
 )
@@ -73,7 +78,7 @@ async def test_setup_walks_through_and_saves(
         type_into(app, "#own", "I know some Python")
         await pilot.press("enter")
         await at(pilot, ModelStep)
-        await pilot.press("down", "down", "enter")  # “another service that works like OpenAI”
+        await pilot.press("down", "down", "down", "enter")  # “another service that works like OpenAI”
         type_into(app, "#address", "https://api.deepseek.com/")
         await pilot.press("enter")
         type_into(app, "#key", "sk-test-deepseek-0123456789")
@@ -158,8 +163,8 @@ async def test_setup_model_list_error_lets_you_type_an_id(mentor_env: dict[str, 
         await pilot.press("enter")
         await at(pilot, StyleStep)
         await pilot.press("enter", "enter", "enter")
-        await at(pilot, ModelStep)  # Anthropic is chosen by default for a new setup
-        await pilot.press("enter")  # on to the key field
+        await at(pilot, ModelStep)  # the ChatGPT plan is chosen by default for a new setup
+        await pilot.press("down", "enter")  # Anthropic, then on to the key field
         await pilot.press("enter", "enter")  # no key: an error, and we stay
         await pilot.pause(0.1)
         assert isinstance(app.screen, ModelStep)
@@ -173,3 +178,142 @@ async def test_setup_model_list_error_lets_you_type_an_id(mentor_env: dict[str, 
         await pilot.press("enter")
         await at(pilot, ReviewStep)
         assert app.answers.provider == "anthropic" and app.answers.model == "claude-test-model"
+
+
+# ---------------------------------------------------------------- Continue with ChatGPT
+def plan_account() -> Account:
+    return Account(
+        "oaiapp_test",
+        "user-1",
+        "learner@example.com",
+        scopes=[PLAN_SCOPE],
+        access_token="access",
+        refresh_token="refresh",
+        expires_at=time.time() + 3600,
+    )
+
+
+class FakeSignIn:
+    """Stands in for ChatGPTAuth: no browser, no network."""
+
+    def __init__(self, result: Account | None = None, error: SignInError | None = None) -> None:
+        self.saved: Account | None = None
+        self.result, self.error = result, error
+        self.calls = 0
+        self.opened: list[str] = []
+        self.open_browser: Callable[[str], object] = self.opened.append
+
+    def account(self) -> Account | None:
+        return self.saved
+
+    async def sign_in(self, on_url: Callable[[str], None] | None = None, *, timeout: float = 600.0) -> Account:
+        self.calls += 1
+        if on_url:
+            on_url("https://auth.openai.com/api/accounts/authorize?client_id=dynamic_agent_client")
+        await asyncio.sleep(0.05)
+        if self.error:
+            raise self.error
+        assert self.result is not None
+        self.saved = self.result
+        return self.result
+
+
+async def to_model_step(pilot) -> None:  # type: ignore[no-untyped-def]
+    await pilot.press("enter")
+    await at(pilot, FolderStep)
+    await pilot.press("enter")
+    await at(pilot, AboutStep)
+    await pilot.press("enter")
+    await at(pilot, StyleStep)
+    await pilot.press("enter", "enter", "enter")
+    await at(pilot, ModelStep)
+
+
+async def settled(pilot, step: SignInStep) -> None:  # type: ignore[no-untyped-def]
+    for _ in range(60):
+        if not step.waiting:
+            return
+        await pilot.pause(0.05)
+    raise AssertionError("the sign-in never finished")
+
+
+async def test_setup_continues_with_chatgpt_and_saves(mentor_env: dict[str, str], tmp_path: Path) -> None:
+    paths = AppPaths.from_env()
+    paths.ensure()
+    auth = FakeSignIn(result=plan_account())
+    asked: list[str] = []
+
+    async def fetch(config: Config, provider: ProviderName) -> list[str]:
+        asked.append(provider)
+        return ["gpt-b", "gpt-a"]
+
+    app = SetupApp(paths, Config(workspace_root=str(tmp_path / "w")), fetch=fetch, auth=auth)
+    async with app.run_test(size=(100, 40)) as pilot:
+        await to_model_step(pilot)
+        assert str(app.screen.query_one("#next", Button).label) == "Continue with ChatGPT"
+        assert not app.screen.query_one("#key-box").display  # no API key needed
+        await pilot.press("enter")  # ChatGPT plan, then on to the “send” tick
+        await pilot.press("space", "enter")  # allow sending, continue
+        await at(pilot, SignInStep)
+        step = app.screen
+        assert isinstance(step, SignInStep)
+        await settled(pilot, step)
+        assert "You're using your ChatGPT plan" in str(step.query_one("#heading").render())
+        assert str(step.query_one("#next", Button).label) == "Got it"
+        await pilot.press("enter")
+        await at(pilot, ModelPickStep)
+        await pilot.pause(0.2)
+        await pilot.press("down", "down", "enter")  # the second model
+        await at(pilot, ReviewStep)
+        review = "\n".join(str(w.render()) for w in app.screen.query(".text"))
+        assert "ChatGPT plan · gpt-a (learner@example.com)" in review and "chatgpt.com/settings/usage" in review
+        await pilot.press("enter")
+        await at(pilot, DoneStep)
+        await pilot.press("escape")
+    assert auth.calls == 1 and asked == ["chatgpt"]
+    cfg = load_config(paths.config_file)
+    assert cfg.tutor.provider == "chatgpt" and cfg.providers.chatgpt.model == "gpt-a"
+    assert PermissionManager(open_store(paths.db_file), "s").check(Capability.NETWORK, "chatgpt").allowed
+
+
+async def test_setup_skips_sign_in_when_already_signed_in(mentor_env: dict[str, str], tmp_path: Path) -> None:
+    paths = AppPaths.from_env()
+    paths.ensure()
+    auth = FakeSignIn()
+    auth.saved = plan_account()
+
+    async def fetch(config: Config, provider: ProviderName) -> list[str]:
+        return ["gpt-a"]
+
+    app = SetupApp(paths, Config(workspace_root=str(tmp_path / "w")), fetch=fetch, auth=auth)
+    async with app.run_test(size=(100, 40)) as pilot:
+        await to_model_step(pilot)
+        assert "Signed in as learner@example.com" in str(app.screen.query_one("#account").render())
+        assert str(app.screen.query_one("#next", Button).label) == "Continue"
+        await pilot.press("enter", "enter")
+        await at(pilot, ModelPickStep)
+    assert auth.calls == 0
+
+
+async def test_setup_sign_in_declined_can_try_again(mentor_env: dict[str, str], tmp_path: Path) -> None:
+    paths = AppPaths.from_env()
+    paths.ensure()
+    auth = FakeSignIn(error=SignInError("access_denied", "You cancelled the sign-in or did not allow it."))
+    app = SetupApp(paths, Config(workspace_root=str(tmp_path / "w")), auth=auth)
+    async with app.run_test(size=(100, 40)) as pilot:
+        await to_model_step(pilot)
+        await pilot.press("enter", "enter")
+        await at(pilot, SignInStep)
+        step = app.screen
+        assert isinstance(step, SignInStep)
+        await settled(pilot, step)
+        assert "cancelled the sign-in" in str(step.query_one("#error").render())
+        assert str(step.query_one("#next", Button).label) == "Try again"
+        await pilot.press("o")
+        assert auth.opened and auth.opened[0].startswith("https://auth.openai.com/")
+        await pilot.press("enter")  # try again
+        await pilot.pause(0.05)
+        await settled(pilot, step)
+        await pilot.press("escape")
+        await at(pilot, ModelStep)
+    assert auth.calls == 2

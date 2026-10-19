@@ -30,19 +30,18 @@ pytest-asyncio 1.4.0, mypy 2.4.0, ruff 0.17.0, pynvim 0.6.0.
 
 ## Tests actually run (latest)
 
-Command: `uv run pytest -m "not live"` → **181 passed, 2 deselected** (after
-the plain-English assessment change; the end-to-end flow now says "I think I'm
-done" instead of `/check`).
+Command: `uv run pytest -m "not live"` → **210 passed, 2 deselected** (after
+adding ChatGPT sign-in).
 
 | Group | Count | What they use |
 |---|---|---|
-| `tests/unit` | 162 | Pure logic, real SQLite, real IPC socket, real Python subprocesses, Textual Pilot (tutor pane and full-screen setup), real SDK parsing via `httpx2.MockTransport` |
+| `tests/unit` | 191 | Pure logic, real SQLite, real IPC socket, real Python subprocesses, Textual Pilot (tutor pane and full-screen setup), real SDK parsing via `httpx2.MockTransport`, ChatGPT sign-in against a fake OpenAI server with a real local return page |
 | `tests/integration` | 17 | Real tmux (private sockets), real zsh with the hooks, real headless Neovim with the plugin |
 | `tests/e2e` | 2 | The real `mentor` command, tmux, zsh, Neovim, and the Textual tutor pane, mock provider |
 | `tests/live` | 2 | **Not run** (skipped: needs your API key and model id) |
 
 Also run: `uv run ruff check .` (clean), `uv run ruff format --check .` (clean),
-`uv run mypy` (strict, clean, 63 source files).
+`uv run mypy` (strict, clean, 65 source files).
 
 UI checks run: screenshots of every tutor-pane state (first-run tour,
 permission dialog, plan, file approval, lesson) at 76 and 60 columns, dark and
@@ -108,6 +107,17 @@ tmux sockets.
 - Tested with the mock provider and recorded tool calls; a real model's tool use is not yet tested.
 - Slash commands still work as optional shortcuts; no message suggests them any more.
 
+## ChatGPT plan (current)
+- "Continue with ChatGPT" in `mentor init`, plus `mentor login` / `mentor logout [--forget]`. Uses OpenAI's
+  Sign in with ChatGPT for open-source apps (same plan usage as Codex), not Codex's own login.
+- Sign-in, ID-token signature check, Keychain storage, locked token renewal, sign-out and the Responses
+  API provider are tested offline (fake OpenAI server, real local return page).
+- Checked against the real service without signing in: OpenAI's sign-in settings and signing keys load;
+  the sign-in link is accepted and leads to the ChatGPT log-in page; the token endpoint answers bad codes
+  with `invalid_grant`, which we handle.
+- NOT yet tested: a real sign-in, the model list, and a real tutor reply with tools.
+- Also fixed: a new setup pre-filled the model box with the offline demo's model name.
+
 ## Learning flow (current)
 Welcome asks what to learn → the model proposes a plan → learner accepts or revises → steps are prepared
 on demand and checked by the fixed check menu (real C/C++ compile-and-run supported) → later sessions offer
@@ -116,7 +126,7 @@ Built-in lessons were removed by request. Tested with recorded plan answers (moc
 NOT yet tested against a real model (plan quality and tool-call reliability with DeepSeek are unknown).
 
 ## Known limits / not done
-- Live provider calls not tested (no key here). SDK code paths are tested offline.
+- Live provider calls not tested (no key or ChatGPT sign-in here). SDK code paths are tested offline.
 - OpenAI-compatible `base_url` servers: unverified.
 - Linux: not verified; CI Linux job is marked experimental.
 - CI workflow written but never run (no git remote).

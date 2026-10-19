@@ -13,6 +13,7 @@ import getpass
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from .apikeys import ENV_VARS, get_api_key, set_api_key
 from .config import Config, ProviderName, save_config
@@ -23,8 +24,11 @@ from .permissions import Capability, PermissionManager, Scope
 from .providers import build_provider
 from .providers.base import ProviderError
 
+if TYPE_CHECKING:
+    from .chatgpt_auth import ChatGPTAuth
+
 Ask = Callable[[str], str]
-DEFAULT_HOSTS = {"anthropic": "api.anthropic.com", "openai": "api.openai.com"}
+DEFAULT_HOSTS = {"anthropic": "api.anthropic.com", "openai": "api.openai.com", "chatgpt": "ChatGPT (api.openai.com)"}
 
 
 @dataclass
@@ -131,6 +135,7 @@ def run_init(
     base_url: str | None = None,
     ask: Ask = input,
     say: Callable[[str], None] = print,
+    auth: ChatGPTAuth | None = None,
 ) -> Config:
     paths.ensure()
     store = open_store(paths.db_file)
@@ -172,24 +177,27 @@ def run_init(
         # 4. Provider
         chosen: ProviderName = provider or "mock"
         if provider is None and not assume_yes:
-            reply = ask("\nTutor model: [M]ock (offline demo, not an AI) / anthropic / openai: ").strip().lower()
-            chosen = reply if reply in ("anthropic", "openai") else "mock"  # type: ignore[assignment]
+            reply = ask(
+                "\nTutor model: [M]ock (offline demo, not an AI) / chatgpt (your ChatGPT plan) / anthropic / openai: "
+            )
+            reply = reply.strip().lower()
+            chosen = reply if reply in ("chatgpt", "anthropic", "openai") else "mock"  # type: ignore[assignment]
         answers.provider = chosen
         if base_url is not None:
             config.provider_settings(chosen).base_url = base_url
-        if chosen != "mock":
-            if get_api_key(chosen).key is None:
-                if assume_yes:
-                    say(f"  No API key found. Set {ENV_VARS[chosen]} or run `mentor key set {chosen}`.")
-                else:
-                    key = getpass.getpass(
-                        f"  Paste your {chosen} API key (hidden; stored in the macOS Keychain): "
-                    ).strip()
-                    if key:
-                        set_api_key(chosen, key)
-                        say("  Saved to Keychain.")
+        if chosen == "chatgpt":
+            _chatgpt_sign_in(paths, auth, assume_yes, ask, say)
+        elif chosen != "mock" and get_api_key(chosen).key is None:
+            if assume_yes:
+                say(f"  No API key found. Set {ENV_VARS[chosen]} or run `mentor key set {chosen}`.")
             else:
-                say(f"  Using the {chosen} key from {get_api_key(chosen).source} (not shown).")
+                key = getpass.getpass(f"  Paste your {chosen} API key (hidden; stored in the macOS Keychain): ").strip()
+                if key:
+                    set_api_key(chosen, key)
+                    say("  Saved to Keychain.")
+        elif chosen != "mock":
+            say(f"  Using the {chosen} key from {get_api_key(chosen).source} (not shown).")
+        if chosen != "mock":
             if model:
                 answers.model = model
             elif not assume_yes:
@@ -206,15 +214,43 @@ def run_init(
         store.close()
 
 
+def _chatgpt_sign_in(
+    paths: AppPaths, auth: ChatGPTAuth | None, assume_yes: bool, ask: Ask, say: Callable[[str], None]
+) -> None:
+    from .chatgpt_auth import PLAN_OFF, USAGE_URL, ChatGPTAuth, SignInError
+
+    auth = auth or ChatGPTAuth(paths)
+    account = auth.account()
+    if account is not None and account.signed_in and account.plan_enabled:
+        say(f"  Signed in to ChatGPT as {account.label}.")
+        return
+    if assume_yes or not _yes(ask("  Continue with ChatGPT? Your browser opens so you can sign in. [Y/n] "), True):
+        say("  Not signed in to ChatGPT yet. Run `mentor login` before `mentor start`.")
+        return
+    try:
+        account = asyncio.run(
+            auth.sign_in(
+                lambda url: say(f"  If the browser does not open, use this link:\n  {url}\n  Waiting for you…")
+            )
+        )
+    except SignInError as exc:
+        say(f"  Sign-in did not finish: {exc.message}")
+        return
+    if account.plan_enabled:
+        say(f"  You're using your ChatGPT plan ({account.label}). Manage usage: {USAGE_URL}")
+    else:
+        say(f"  {PLAN_OFF}")
+
+
 def _choose_model(config: Config, provider: ProviderName, ask: Ask, say: Callable[[str], None]) -> str | None:
     where = server_address(config, provider)
-    if not _yes(ask(f"  Fetch the list of models from {where}? (sends your key there to sign in) [Y/n] "), True):
+    if not _yes(ask(f"  Fetch the list of models from {where}? (signs in there) [Y/n] "), True):
         return ask("  Type a model id: ").strip() or None
     try:
         models = asyncio.run(fetch_models(config, provider))
     except ProviderError as exc:
-        say(f"  {exc.message}")
-        if exc.kind == "auth":
+        say(f"  {exc.user_message() if provider == 'chatgpt' else exc.message}")
+        if exc.kind == "auth" and provider != "chatgpt":
             say("  Check two things: the key belongs to this service, and the address above is right.")
             say("  For an OpenAI-compatible service, run init with --base-url <its address>.")
         return ask("  Type a model id (or press Ctrl+C to stop; nothing is saved to config yet): ").strip() or None

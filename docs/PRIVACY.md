@@ -26,6 +26,8 @@ The shell pane is observed wherever you `cd` (command records), but file
 | Logs (metadata only, keys masked) | `~/.local/state/cli-mentor/logs/` | Rotated at 2 MB, 3 old files |
 | Session token, socket, zsh wrapper | `$TMPDIR/cli-mentor-<uid>/<session>/` | Removed when the session ends |
 | API keys | macOS Keychain, service `cli-mentor` | Until `mentor key delete <provider>` |
+| ChatGPT sign-in (tokens, app id, email) | macOS Keychain, service `cli-mentor`, account `chatgpt` | Tokens until `mentor logout`; app id and email until `mentor logout --forget` |
+| Computer id for ChatGPT sign-in (random, not about you) | `~/.local/share/cli-mentor/chatgpt-host-id` | Until you delete it |
 
 All folders are created private (0700) and files 0600. High-frequency raw
 terminal chunks and cursor moves are kept in memory only, not written to disk.
@@ -41,6 +43,12 @@ anywhere.
 
 **Data already sent to a provider cannot be recalled by CLI Mentor.** The
 provider's own retention policy applies.
+
+With the ChatGPT plan, requests go to OpenAI's public API
+(`api.openai.com/v1/responses`) with `store: false`, using your ChatGPT
+sign-in. Signing in does not give CLI Mentor your ChatGPT conversations or
+memory. Usage counts toward your plan; review or limit it at
+<https://chatgpt.com/settings/usage>, where you can also disconnect CLI Mentor.
 
 ## Pause
 

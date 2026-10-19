@@ -23,7 +23,7 @@ from .memory.profile import Profile
 from .memory.sessions import Sessions
 from .paths import AppPaths
 
-PROVIDERS = ("mock", "anthropic", "openai")
+PROVIDERS = ("mock", "chatgpt", "anthropic", "openai")
 
 
 def _paths() -> AppPaths:
@@ -80,7 +80,10 @@ def _full_screen_setup(paths: AppPaths, args: argparse.Namespace, *, then_start:
     )
     if not result.saved:
         print("Setup was not finished, so nothing was saved. Run `mentor init` when you are ready.")
-        print("(An API key you pasted is already in the Keychain. `mentor key delete <provider>` removes it.)")
+        print(
+            "(An API key you pasted, or a ChatGPT sign-in, is already in the Keychain. "
+            "`mentor key delete <provider>` or `mentor logout` removes it.)"
+        )
         return False
     print(f"Saved {paths.config_file}.")
     if not result.start:
@@ -462,6 +465,53 @@ def cmd_key(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_login(args: argparse.Namespace) -> int:
+    import asyncio
+
+    from .chatgpt_auth import PLAN_OFF, USAGE_URL, ChatGPTAuth, SignInError
+
+    paths = _paths()
+    print("Continue with ChatGPT: your browser opens so you can sign in and let CLI Mentor use your ChatGPT plan.")
+
+    def show(url: str) -> None:
+        print(f"\nIf the browser does not open, copy this link into it:\n  {url}\n")
+        print("Waiting for you to finish in the browser (Ctrl+C cancels)…")
+
+    try:
+        account = asyncio.run(ChatGPTAuth(paths).sign_in(show))
+    except SignInError as exc:
+        print(f"\nSign-in did not finish: {exc.message}")
+        return 1
+    if not account.plan_enabled:
+        print(f"\nSigned in as {account.label}. {PLAN_OFF}")
+        return 1
+    print(f"\nYou're using your ChatGPT plan. Signed in as {account.label}.")
+    print(f"Tutor replies count toward your plan's usage. Manage usage: {USAGE_URL}")
+    config = load_config(paths.config_file)
+    if config.tutor.provider != "chatgpt" or not config.providers.chatgpt.model:
+        print("Next: run `mentor init --provider chatgpt` to choose a model and make ChatGPT your tutor.")
+    return 0
+
+
+def cmd_logout(args: argparse.Namespace) -> int:
+    import asyncio
+
+    from .chatgpt_auth import USAGE_URL, ChatGPTAuth
+
+    auth = ChatGPTAuth(_paths())
+    account = auth.account()
+    if account is None or not (account.signed_in or args.forget):
+        print("You are not signed in to ChatGPT.")
+        return 0
+    confirmed = asyncio.run(auth.sign_out(forget=args.forget))
+    print("Signed out of ChatGPT. The sign-in was removed from the macOS Keychain.")
+    if args.forget:
+        print("The next `mentor login` registers CLI Mentor again, so you can pick another account.")
+    if not confirmed:
+        print(f"OpenAI did not confirm the sign-out. To be sure, disconnect CLI Mentor at {USAGE_URL}")
+    return 0
+
+
 def cmd_demo(args: argparse.Namespace) -> int:
     from .onboarding import run_init
 
@@ -618,6 +668,12 @@ def build_parser() -> argparse.ArgumentParser:
     k.add_argument("action", choices=["set", "delete", "status"])
     k.add_argument("provider", choices=["anthropic", "openai"])
     k.set_defaults(func=cmd_key)
+
+    li = sub.add_parser("login", help="sign in with ChatGPT to teach with your ChatGPT plan (no API key)")
+    li.set_defaults(func=cmd_login)
+    lo = sub.add_parser("logout", help="sign out of ChatGPT and remove the sign-in from the Keychain")
+    lo.add_argument("--forget", action="store_true", help="also forget the app registration (to switch accounts)")
+    lo.set_defaults(func=cmd_logout)
 
     dm = sub.add_parser("demo", help="offline demo: real tools, mock tutor, separate data")
     dm.add_argument("--detach", action="store_true")
