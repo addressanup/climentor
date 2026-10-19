@@ -176,7 +176,7 @@ class EditorCommands(_M):
 
 
 class LearnerAnswer(_M):
-    """The learner types an answer with /check <answer>; compared without case or punctuation."""
+    """The learner gives an answer in plain words; compared without case or punctuation."""
 
     type: Literal["learner_answer"]
     question: str = Field(min_length=3, max_length=400)

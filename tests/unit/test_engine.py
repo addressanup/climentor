@@ -12,7 +12,7 @@ import pytest
 from cli_mentor.curriculum.plans import PLAN_TOOL, STEP_TOOL
 from cli_mentor.events.schema import Provenance, SourceKind, TmuxOutput, TmuxSnapshot
 from cli_mentor.memory.notes import Notes
-from cli_mentor.permissions import Capability
+from cli_mentor.permissions import Capability, Scope
 from cli_mentor.providers.base import ProviderError, ToolCall
 from cli_mentor.providers.mock import MockBehaviour, MockProvider
 from cli_mentor.tutor import commands
@@ -291,6 +291,92 @@ async def test_answer_check_then_ai_review_completes_plan(ws: Path) -> None:
         await eng.stop()
 
 
+async def test_whole_plan_in_plain_english_without_commands(ws: Path) -> None:
+    ui = HeadlessUi()
+    mock = planning_mock()
+    eng = make_engine(ws, ui=ui, provider=mock)
+    await eng.start(greet=False)
+    try:
+        wd = await reach_first_step(eng)
+        await eng.learner_message("It prints Hi")  # the prediction, in plain words
+        assert eng.session.exercise_stage == "attempt"
+        await eng.learner_message("I'm stuck")
+        assert eng.session.hint_level == 1
+        (wd / "hello.cpp").write_text(HELLO)
+        FakeShell(eng).run("c++ hello.cpp -o hello", wd)
+        await settle(eng)
+        await eng.learner_message("I think I'm done")  # runs the check (asks once to run the code)
+        assert any("Run your code" in q for q, _ in ui.questions)
+        done = ui.last_turn("verification")
+        assert done is not None and "Say **next**" in done.text and "/lesson" not in done.text
+        await eng.learner_message("next")
+        assert eng.lesson().title == "Variables and types"  # type: ignore[union-attr]
+        await eng.learner_message("skip")  # no prediction this time
+        assert eng.session.exercise_stage == "attempt"
+        await eng.learner_message("float")  # a wrong answer: no failure is recorded, the tutor replies
+        assert eng.lesson().title == "Variables and types"  # type: ignore[union-attr]
+        assert not eng.store.conn.execute("SELECT 1 FROM skill_evidence WHERE result = 'fail'").fetchall()
+        await eng.learner_message("int")  # the right answer, just typed
+        assert eng.plans.active().current_step == "s3"  # type: ignore[union-attr]
+        await eng.learner_message("ready")
+        await eng.learner_message("skip")
+        assert eng.lesson().title == "Reading code aloud"  # type: ignore[union-attr]
+        mock.behaviour.tool_calls = [ToolCall("assess_step", {"verdict": "complete", "feedback": "Clear."})]
+        await eng.learner_message("I wrote notes.txt explaining what every line of hello.cpp does")
+        plan = eng.plans.get(eng.session.plan_id or "")
+        assert plan is not None and plan.status == "completed"
+        row = eng.store.conn.execute("SELECT result, provenance FROM skill_evidence WHERE kind = 'review'").fetchone()
+        assert tuple(row) == ("unverified", "model_inferred")
+        assert not any("/check" in t.text or "/lesson" in t.text for t in ui.turns.values())
+    finally:
+        await eng.stop()
+
+
+async def test_tutor_runs_the_check_from_a_sentence(ws: Path) -> None:
+    ui = HeadlessUi()
+    mock = planning_mock()
+    eng = make_engine(ws, ui=ui, provider=mock)
+    await eng.start(greet=False)
+    try:
+        await reach_first_step(eng)
+        await eng.skip_step()
+        await eng.learner_message("let's go")
+        await eng.skip_prediction()
+        # The sentence is not the answer itself; the tutor reads it and passes on just the answer.
+        mock.behaviour.tool_calls = [ToolCall("request_check", {"answer": "int"})]
+        await eng.learner_message("I am pretty sure whole numbers are stored in an int")
+        assert eng.plans.active().current_step == "s3"  # type: ignore[union-attr]
+        check_turn = next(r for r in mock.requests if r.meta and r.meta.learner_text.startswith("I am pretty"))
+        assert [t.name for t in check_turn.tools or []] == ["propose_memory", "request_check"]
+    finally:
+        await eng.stop()
+
+
+async def test_running_your_program_checks_the_step_when_allowed(ws: Path) -> None:
+    ui = HeadlessUi()
+    eng = make_engine(ws, ui=ui, provider=planning_mock())
+    await eng.start(greet=False)
+    try:
+        wd = await reach_first_step(eng)
+        await eng.skip_prediction()
+        (wd / "hello.cpp").write_text(HELLO)
+        shell = FakeShell(eng)
+        shell.run("c++ hello.cpp -o hello", wd)  # not allowed to run code yet: stays quiet
+        await settle(eng)
+        await asyncio.sleep(0.3)
+        assert eng.plans.active().current_step == "s1"  # type: ignore[union-attr]
+        eng.permissions.grant(Capability.RUN_LEARNER_CODE, Scope.SESSION, eng.workspace_root)
+        shell.run("./hello", wd)
+        for _ in range(60):
+            await asyncio.sleep(0.1)
+            if eng.plans.active().current_step == "s2":  # type: ignore[union-attr]
+                break
+        assert eng.plans.active().current_step == "s2"  # type: ignore[union-attr]
+        assert not any("Run your code" in q for q, _ in ui.questions)  # nobody was asked
+    finally:
+        await eng.stop()
+
+
 async def test_pause_blocks_new_observation_from_provider(ws: Path) -> None:
     ui = HeadlessUi(answers={"Resume observation": "y"})
     mock = MockProvider()
@@ -490,7 +576,7 @@ async def test_later_sessions_offer_to_continue(ws: Path) -> None:
         welcome = ui2.last_turn("session_start")
         assert welcome is not None and "Welcome back" in welcome.text
         assert "C++ from the very basics" in welcome.text and "step 1 of 3: Hello, C++" in welcome.text
-        assert "/learn <topic>" in welcome.text
+        assert "Say **continue**" in welcome.text and "/lesson" not in welcome.text
         assert eng2.session.hint_level == 1
         attempt = eng2.evidence.current_attempt(eng2.lesson().id)  # type: ignore[union-attr]
         assert attempt is not None and attempt.hints_used == 1
@@ -524,13 +610,16 @@ async def test_greeting_knows_the_plan_and_next_step(ws: Path) -> None:
         await eng.skip_prediction()
         await eng.learner_message("hello")
         req = mock.requests[-1]
-        assert "About the program you are part of (CLI Mentor)" in req.system and "/learn <topic>" in req.system
+        assert "About the program you are part of (CLI Mentor)" in req.system and "plain English" in req.system
+        assert "Never ask them to type a command" in req.system
+        assert [t.name for t in req.tools or []] == ["propose_memory", "request_check"]
         progress = req.messages[-1].content.split("<learner_progress>\n")[1].split("</learner_progress>")[0]
         assert "Learning plan: “C++ from the very basics”" in progress
-        assert "Current step 1 of 3" in progress and "/check" in progress
+        assert "Current step 1 of 3" in progress and "request_check" in progress and "/check" not in progress
         assert "Coming next: Variables and types" in progress
         reply = ui.last_turn("learner_message")
-        assert reply is not None and "Hello, C++" in reply.text and "/check" in reply.text
+        assert reply is not None and "Hello, C++" in reply.text and "“done”" in reply.text
+        assert "/check" not in reply.text
     finally:
         await eng.stop()
 

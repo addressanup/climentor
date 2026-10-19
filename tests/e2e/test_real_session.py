@@ -171,7 +171,8 @@ def test_acceptance_learning_flow(rig: Rig) -> None:
     hint = wait(lambda: tutor_messages(r, "repeated_failure"), timeout=25, what="unsolicited hint")
     assert isinstance(hint, list) and "error" in hint[0] and "Small hint (1)" in hint[0]
 
-    # 7-9. Fix, compile, /check runs the code (after approval) -> evidence shows the help received.
+    # 7-9. Fix, compile, say "done" in plain English: the check runs the code (after approval)
+    # -> evidence shows the help received.
     (wd / "hello.cpp").write_text('#include <iostream>\nint main() { std::cout << "Hello, C++!" << std::endl; }\n')
     r.type(shell, "c++ hello.cpp -o hello && ./hello")
     wait(
@@ -181,7 +182,7 @@ def test_acceptance_learning_flow(rig: Rig) -> None:
         ),
         what="successful compile",
     )
-    r.type(tutor, "/check")
+    r.type(tutor, "I think I'm done")
     wait(lambda: "Run your code to check it?" in r.screen(tutor), what="run-code approval")
     r.key(tutor, "y")
     rows = wait(

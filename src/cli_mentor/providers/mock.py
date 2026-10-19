@@ -28,6 +28,7 @@ from .base import (
 )
 
 LABEL = "MOCK TUTOR (offline, deterministic, not an AI)"
+DONE_LINE = "When you think you are done, just tell me (“done”). Say “hint” any time you are stuck."
 
 
 @dataclass
@@ -60,7 +61,7 @@ def compose(meta: TurnMeta | None) -> str:
             parts.append(f"**Predict first:** {meta.prediction_question}")
         if meta.instructions:
             parts.append(f"**Your task:**\n\n{meta.instructions}")
-        parts.append("When you think you are done, type `/check`. Ask for `/hint` any time.")
+        parts.append(DONE_LINE)
     elif t in ("command_failed", "repeated_failure"):
         if meta.last_command is not None:
             parts.append(f"I saw `{meta.last_command}` finish with exit status {meta.last_exit}.")
@@ -74,7 +75,7 @@ def compose(meta: TurnMeta | None) -> str:
         if meta.hint_text:
             parts.append(f"**Hint {meta.hint_level}:** {meta.hint_text}")
         else:
-            parts.append("There are no more hints for this exercise. Try `/explain`.")
+            parts.append("There are no more hints for this exercise. Ask me to explain a word you are unsure about.")
     elif t == "explain":
         if meta.explanation:
             parts.append(meta.explanation)
@@ -87,7 +88,7 @@ def compose(meta: TurnMeta | None) -> str:
         if meta.extra.get("passed"):
             parts.append("Now explain in one sentence *why* your command worked.")
         else:
-            parts.append("Look at the failing check above, change one thing, and run `/check` again.")
+            parts.append("Look at the failing check above, change one thing, and tell me when to look again.")
     elif t == "session_start":
         parts.append(meta.learner_text or "Welcome back.")
     elif t == "prediction":
@@ -97,7 +98,7 @@ def compose(meta: TurnMeta | None) -> str:
             parts.append(f"The expected answer is: **{expected}**. If yours differs, that is useful — notice why.")
         if meta.instructions:
             parts.append(f"**Your task:**\n\n{meta.instructions}")
-        parts.append("When you think you are done, type `/check`. Ask for `/hint` any time.")
+        parts.append(DONE_LINE)
     elif t == "review":
         parts.append(f"Review time. {meta.learner_text}")
         parts.append("Explain in your own words what each skill does, then try a small example in the shell.")
@@ -110,17 +111,16 @@ def compose(meta: TurnMeta | None) -> str:
             parts.append("Tell me what you would like to learn and I will propose a plan.")
         elif meta.exercise_title and meta.stage != "verified":
             step = {
-                "explain": "answer the prediction question above, or type `/lesson skip`",
-                "attempt": "do the task in the shell or Neovim, then type `/check` (or `/hint` for help)",
-            }.get(meta.stage or "", "type `/lesson` to continue")
+                "explain": "answer the prediction question above in your own words, or say “skip”",
+                "attempt": "do the task in the shell or Neovim, then say “done” (or “hint” if you are stuck)",
+            }.get(meta.stage or "", "say “next” to continue")
             parts.append(f"You are on **{meta.exercise_title}**. Next: {step}.")
         elif meta.extra.get("next_step"):
             parts.append(
-                f"In **{meta.extra.get('plan_title')}**, next is {meta.extra['next_step']}. Type `/lesson` to start it."
+                f"In **{meta.extra.get('plan_title')}**, next is {meta.extra['next_step']}. Say “next” to start it."
             )
         if meta.last_command is not None:
             parts.append(f"Your last command was `{meta.last_command}` (exit {meta.last_exit}).")
-        parts.append("Useful commands: `/lesson`, `/plan`, `/hint`, `/explain <term>`, `/check`, `/help`.")
     return "\n\n".join(parts)
 
 

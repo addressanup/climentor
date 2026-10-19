@@ -60,7 +60,9 @@ Test evidence is listed in `STATUS.md`.
 | Curriculum-only fallback when the provider fails | Done | |
 | Streaming, multiline input, cancel (Esc), approvals, readable code | Done | Textual app |
 | Tutor pane header: subject, step N of M, learn → try → check, a line that fills as steps get done | Done | Words and shapes (● ○ ✓), not only colour |
-| Input hint says what to type next (goal, yes/changes, prediction, /check) | Done | |
+| Input hint says what to type next (goal, yes/changes, prediction, "done") | Done | |
+| Continuous assessment in plain English (no commands needed) | Done (offline-tested) | "done", answers, "hint", "next", "skip" handled directly; longer messages: the model calls `request_check` / `assess_step` / `start_step`. Real-model tool use not yet tested |
+| Automatic check after you run your program successfully | Done | Only if you allowed running your code for the session |
 | Uses the terminal's own colours (light or dark) | Done | Guessed from `COLORFGBG`; `CLI_MENTOR_THEME` overrides |
 | First-session tour (screen, keys, how we work), `/tour` to replay | Done | Not sent to the model |
 | Question dialogs: letter keys, or ↑ ↓ and Enter, or click | Done | |

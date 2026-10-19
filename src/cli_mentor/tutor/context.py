@@ -164,24 +164,31 @@ class ContextAssembler:
             current = next((st for st in steps if st.step_id == plan.current_step), None)
             if current is not None:
                 stage_next = {
-                    "explain": "they should answer the prediction question (or type /lesson skip)",
-                    "attempt": "they are doing the task; /check when done, /hint for help",
-                    "verified": "finished; the next step starts with /lesson",
+                    "explain": "they should answer the prediction question in their own words (or say skip)",
+                    "attempt": "they are doing the task; when they say (in any words) that they are done, or give "
+                    "an answer, the work is checked (call request_check); they can say hint if stuck",
+                    "verified": "finished; the next step starts when they say they are ready (call start_step)",
                 }
                 started = t.lesson is not None and t.lesson.order == current.position
                 lines.append(
                     f"Current step {current.position} of {total} (module “{current.module}”): {current.title}: "
                     f"{current.objective}. "
-                    + (stage_next.get(t.stage or "", "") if started else "Not started yet: they start it with /lesson.")
+                    + (
+                        stage_next.get(t.stage or "", "")
+                        if started
+                        else "Not started yet: it starts when they say they are ready (call start_step)."
+                    )
                 )
                 upcoming = [st.title for st in steps if st.position > current.position][:3]
                 if upcoming:
                     lines.append("Coming next: " + "; ".join(upcoming))
             elif plan.status == "completed":
-                lines.append("Every step is finished. Suggest /review or a new goal with /learn <topic>.")
+                lines.append(
+                    "Every step is finished. Offer a short review, or a new subject (they say “new subject:” and a topic)."
+                )
         due = self.evidence.due_reviews()
         if due:
-            lines.append("Skills due for review (type /review): " + ", ".join(sk.skill for sk in due[:6]))
+            lines.append("Skills due for review (offer a short review): " + ", ".join(sk.skill for sk in due[:6]))
         return "\n".join(lines)
 
     def _exercise(self, t: TurnInputs) -> str:

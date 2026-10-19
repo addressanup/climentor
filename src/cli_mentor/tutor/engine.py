@@ -94,10 +94,33 @@ log = logging.getLogger(__name__)
 
 NOT_PERSISTED = frozenset({"tmux.output", "nvim.cursor"})
 NO_STALE_NOTE = frozenset({Trigger.LESSON_INTRO, Trigger.PLAN, Trigger.PLAN_REVISE, Trigger.PREPARE_STEP})
-CALLER_HANDLED_TOOLS = frozenset({"propose_plan", "prepare_step", "assess_step"})
+CALLER_HANDLED_TOOLS = frozenset({"propose_plan", "prepare_step", "assess_step", "request_check", "start_step"})
 YES = re.compile(
     r"^(y|yes|yeah|yep|ok|okay|sure|start|go|let'?s go|let'?s start|sounds good|looks good|perfect)\b[.!]*", re.I
 )
+# Plain-English requests the engine acts on directly (short messages only). Everything else goes to the
+# tutor model, which can take the same actions through its tools (request_check, assess_step, start_step).
+SHORT_WORDS = 8
+DONE = re.compile(
+    r"^((i'?m|i am|i think i'?m|i think it'?s|it'?s|it is|all|that'?s)\s+)?"
+    r"(done|finished|complete|ready to check|working now)\b"
+    r"|^(check|check it|check this|check my work|check my answer|did it|i did it|that'?s it)\b",
+    re.I,
+)
+NEXT = re.compile(
+    r"^(next|next step|next one|continue|go on|go ahead|ready|i'?m ready|let'?s go|let'?s continue|let'?s start"
+    r"|start|start it|begin|ok|okay|yes|yep|yeah|sure|go|move on|let'?s move on)[.!]*$",
+    re.I,
+)
+HINT = re.compile(
+    r"^((a|another|one more|give me a|can i get a|can i have a|i need a)\s+)?hint\b|\bi'?m stuck\b|\bi am stuck\b"
+    r"|^stuck\b",
+    re.I,
+)
+SKIP = re.compile(r"^skip(\s+(this|the|it))?(\s+(step|question|prediction))?[.!]*$", re.I)
+SOLUTION = re.compile(r"\b(show|give|tell)( me)? the (solution|answer)\b", re.I)
+SHOW_PLAN = re.compile(r"\b(show|see|view)( me)? (the |my )?plan\b", re.I)
+NEW_SUBJECT = re.compile(r"^new (subject|topic)\b[:,]?\s*(?P<topic>.*)$", re.I)
 APPROVE_CHOICES = [("y", "Yes, this time"), ("s", "Yes, for this session"), ("n", "No")]
 SCOPE_FOR = {"y": Scope.ONCE, "s": Scope.SESSION, "p": Scope.PERSISTENT}
 
@@ -115,11 +138,13 @@ and I help from this pane.
 - **Ctrl+b**, then **z** makes a pane full size. Do it again to go back.
 
 **Talking to me**
-- Type, then press **Enter**. **Ctrl+J** starts a new line.
-- Commands start with `/`. `/help` lists them, and `/tour` shows this again.
+- Just type in plain English, then press **Enter**. **Ctrl+J** starts a new line.
+- You never need commands. Say **done** when you finish a task, **hint** if you are stuck, \
+**next** to move on, or ask me anything.
 
 **How we work:** I explain new words and symbols first. Then you do the task yourself. \
-I give small hints when you ask or get stuck, and I check your work with real tests."""
+When you tell me you are done (or answer my question), I check your work with real tests. \
+If you run your program in the shell, I may notice it works and check it by myself."""
 
 GOAL_QUESTION = """\
 **What would you like to learn?** Say it in your own words. For example:
@@ -129,6 +154,19 @@ GOAL_QUESTION = """\
 - Git, from the first commit to rebasing
 
 I will turn it into a step-by-step plan, and you can change the plan before we start."""
+
+
+def _check_types(lesson: Lesson) -> set[str]:
+    return {str(c.get("type")) for c in lesson.verifier_params.get("checks", []) if isinstance(c, dict)}
+
+
+def _has_answer_check(lesson: Lesson) -> bool:
+    return "learner_answer" in _check_types(lesson)
+
+
+def _needs_review(lesson: Lesson) -> bool:
+    """No automatic check: the tutor judges the work (recorded as unverified)."""
+    return not _check_types(lesson)
 
 
 def _redact_obj(value: Any) -> Any:
@@ -508,7 +546,7 @@ class Engine:
             if self.policy.note_command(record.exit_status or 0, relevant, record.command):
                 self._consider_unsolicited(Trigger.REPEATED_FAILURE)
             if relevant and record.exit_status == 0:
-                self._spawn(self.check(auto=True))
+                self._spawn(self.check(auto=True, run_code=True))
         elif t == "nvim.buffer_written":
             p = env.payload
             assert isinstance(p, NvimBufferWritten)
@@ -699,7 +737,7 @@ class Engine:
             fresh = plan_setup(lesson, self.workspace_root, self.scope, reset=reset)
             if [p for p, _ in fresh.to_create] != [p for p, _ in plan.to_create]:
                 self.ui.note(
-                    "The folder changed while I was asking. Run /lesson again to see the new plan.",
+                    "The folder changed while I was asking. Say “next” again and I will look once more.",
                     "warn",
                 )
                 return None
@@ -809,7 +847,7 @@ class Engine:
     async def accept_plan(self) -> None:
         plan = self.plans.get(self.session.plan_id) if self.session.plan_id else None
         if plan is None:
-            self.ui.note("There is no proposed plan. Tell me what you want to learn, or use `/learn <topic>`.")
+            self.ui.note("There is no proposed plan. Tell me what you want to learn.")
             return
         plan = self.plans.activate(plan.id)
         self.plans.touch(plan.id, self.session_id)
@@ -817,7 +855,7 @@ class Engine:
         self._save_session()
         step = self.plans.current(plan)
         self._say(
-            f"Great, the plan **{plan.title}** is saved. You can see it any time with `/plan`. "
+            f"Great, the plan **{plan.title}** is saved. Ask me to show the plan any time. "
             + (f"Let's begin with step 1: **{step.title}**." if step else ""),
             "plan",
         )
@@ -865,7 +903,7 @@ class Engine:
                     continue
                 self.plans.save_lesson(plan.id, step.step_id, lesson)
                 return lesson
-        self.ui.note("I could not prepare this step. Type `/lesson` to try again.", "warn")
+        self.ui.note("I could not prepare this step. Say “next” to try again.", "warn")
         return None
 
     async def start_step(self, *, reset: bool = False) -> Lesson | None:
@@ -879,7 +917,10 @@ class Engine:
         self.session.plan_id = plan.id
         step = self.plans.current(plan)
         if step is None:
-            self._say(f"Every step of **{plan.title}** is done. Try `/review`, or `/learn <topic>` for something new.")
+            self._say(
+                f"Every step of **{plan.title}** is done. Ask me for a review, or say “new subject:” and a topic "
+                "to learn something new."
+            )
             return None
         current = self.lesson()
         if current is not None and step.lesson is not None and current.id == step.lesson.id and not reset:
@@ -915,7 +956,7 @@ class Engine:
         self._say(
             f"Skipped step {step.position}: {step.title}."
             + (
-                f" Next is **step {nxt.position}: {nxt.title}**. Type `/lesson` when ready."
+                f" Next is **step {nxt.position}: {nxt.title}**. Say **next** when you are ready."
                 if nxt
                 else " That was the last step."
             ),
@@ -925,7 +966,7 @@ class Engine:
     def plan_markdown(self) -> str:
         plan = self.plans.get(self.session.plan_id) if self.session.plan_id else self.plans.active()
         if plan is None:
-            return "No plan yet. Tell me what you want to learn, or type `/learn <topic>`."
+            return "No plan yet. Tell me what you want to learn."
         done, total = self.plans.progress(plan.id)
         head = f"Status: **{plan.status}** · {done} of {total} steps done · your goal: “{plan.goal[:200]}”\n\n"
         return head + render_plan(plan.outline, self.plans.steps(plan.id), plan.current_step)
@@ -940,7 +981,7 @@ class Engine:
         self.session.plan_id = plan.id
         self.session.phase = "learning"
         self._save_session()
-        self.ui.note(f"Switched to **{plan.title}**. Type `/lesson` to continue.", "success")
+        self.ui.note(f"Switched to **{plan.title}**. Say “next” to continue.", "success")
 
     def _disable_telemetry(self, lesson_id: str) -> None:
         if lesson_id in self.telemetry_enabled:
@@ -974,11 +1015,12 @@ class Engine:
     async def hint(self) -> None:
         lesson = self.lesson()
         if lesson is None:
-            self.ui.note("No exercise is active. Start one with `/lesson`.", "info")
+            self.ui.note("There is no task right now, so there is no hint. Say “next” to start the next step.", "info")
             return
         if self.session.hint_level >= lesson.max_hint_level:
             self.ui.note(
-                "That was the last hint. `/solution` shows the full answer (it counts as full help).",
+                "That was the last hint. Say “show me the solution” if you want the full answer "
+                "(it counts as full help).",
                 "info",
             )
             return
@@ -1000,22 +1042,27 @@ class Engine:
         answer = await self.ui.ask(
             "Show the full solution?",
             "Seeing the solution is fine, but this attempt will be recorded as 'full solution shown'.\n"
-            "You can still type it yourself and run /check.",
+            "You can still type it yourself, then tell me when you are done.",
             [("y", "Show it"), ("n", "Not yet")],
         )
         if answer != "y":
             return
         self._record_assistance(4, solution=True)
         self.ui.note(
-            f"**Solution** (recorded as full help):\n\n```\n{lesson.solution}\n```\nNow type it yourself and run `/check`.",
+            f"**Solution** (recorded as full help):\n\n```\n{lesson.solution}\n```\nNow type it yourself, then tell me when you are done.",
             "info",
         )
 
-    async def check(self, answer: str | None = None, *, auto: bool = False) -> VerificationResult | None:
+    async def check(
+        self, answer: str | None = None, *, auto: bool = False, run_code: bool = False
+    ) -> VerificationResult | None:
+        """Run the trusted checks. ``auto``: nobody asked, so never ask questions and stay quiet on failure.
+        ``run_code``: the learner just ran their program; an automatic check may run it too if they allowed
+        that for the session."""
         lesson = self.lesson()
         if lesson is None:
             if not auto:
-                self.ui.note("No exercise is active. Start one with `/lesson`.", "info")
+                self.ui.note("There is no task to check right now. Say “next” to start the next step.", "info")
             return None
         if auto and self.session.exercise_stage in ("verified", "explain"):
             return None
@@ -1024,15 +1071,21 @@ class Engine:
         runner: HostRunner | None = None
         if verifier.executes_learner_code or lesson.risk == "runs_learner_code":
             if auto:
-                return None
-            ok = await self._approve(
-                Capability.RUN_LEARNER_CODE,
-                workdir,
-                "Run your code to check it?",
-                "This check compiles (if needed) and runs YOUR code on this Mac.\n"
-                "Limits: 10 second timeout, CPU and file-size limits, a clean environment without API keys.\n"
-                "It is host execution, NOT a sandbox: the code can do what your user account can do.",
-            )
+                decision = self.permissions.check(Capability.RUN_LEARNER_CODE, workdir)
+                if not (run_code and decision.allowed):
+                    return None
+                self.permissions.consume(decision)
+                ok = True
+            else:
+                ok = await self._approve(
+                    Capability.RUN_LEARNER_CODE,
+                    workdir,
+                    "Run your code to check it?",
+                    "This check compiles (if needed) and runs YOUR code on this Mac.\n"
+                    "Limits: 10 second timeout, CPU and file-size limits, a clean environment without API keys.\n"
+                    "It is host execution, NOT a sandbox: the code can do what your user account can do.\n\n"
+                    "Choose “for this session” and I will also check by myself each time you run your program.",
+                )
             if not ok:
                 return None
             runner = HostRunner()
@@ -1102,13 +1155,13 @@ class Engine:
         if nxt is None:
             self._say(
                 f"That was the last step of **{plan.title}** ({done} of {total} done). Well done! "
-                "Try `/review`, or start something new with `/learn <topic>`.",
+                "Ask me for a review any time, or say “new subject:” and a topic to learn something else.",
                 "verification",
             )
         else:
             self._say(
                 f"Step done ({done} of {total}). Next is **step {nxt.position}: {nxt.title}** — "
-                f"{nxt.objective}. Type `/lesson` when you are ready.",
+                f"{nxt.objective}. Say **next** when you are ready, or ask me anything first.",
                 "verification",
             )
 
@@ -1117,8 +1170,15 @@ class Engine:
         calls = await self.run_turn(Trigger.REVIEW_STEP, tools=[actions.ASSESS_TOOL])
         verdict = next((v for v in (actions.validate(c) for c in calls) if isinstance(v, actions.AssessStep)), None)
         if verdict is None:
-            self.ui.note("The tutor did not give a clear verdict. Ask again with `/check`, or `/plan skip`.", "warn")
+            self.ui.note(
+                "The tutor did not give a clear verdict. Tell me again when you think it is done, or say "
+                "“skip this step”.",
+                "warn",
+            )
             return
+        self._apply_verdict(lesson, attempt_id, verdict)
+
+    def _apply_verdict(self, lesson: Lesson, attempt_id: str, verdict: actions.AssessStep) -> None:
         self.evidence.record_answer(
             attempt_id, lesson, "review", f"{verdict.verdict}: {verdict.feedback}", provenance="model_inferred"
         )
@@ -1177,7 +1237,7 @@ class Engine:
         names = ", ".join(f"“{p.title}”" for p in others[:4])
         return (
             f"\n\nYou also have saved subjects: {names}. To continue one, quit with Ctrl+Q and run "
-            "`mentor start`, which lets you pick it (or use `/plan list` and `/plan switch <id>`)."
+            "`mentor start` in your terminal; it lets you pick one."
         )
 
     async def greet(self) -> None:
@@ -1208,10 +1268,10 @@ class Engine:
         step = self.plans.current(plan)
         where = f"next is **step {step.position} of {total}: {step.title}**" if step else "every step is done"
         due = self.evidence.due_reviews()
-        extra = f" Skills due for review: {', '.join(x.skill for x in due[:4])} (`/review`)." if due else ""
+        extra = f" Skills due for review: {', '.join(x.skill for x in due[:4])} (ask me for a review)." if due else ""
         self._say(
             f"Welcome back! You are learning **{plan.title}** ({done} of {total} steps done); {where}.{extra}"
-            "\n\nType `/lesson` to continue, or `/learn <topic>` to learn something else today."
+            "\n\nSay **continue** when you are ready, or ask me anything first."
         )
 
     async def cancel_turn(self, status: str = "cancelled", note: str = "") -> bool:
@@ -1226,19 +1286,87 @@ class Engine:
         return True
 
     async def learner_message(self, text: str) -> None:
-        if self.session.phase == "ask_goal" or (self.session.phase == "learning" and self.plans.active() is None):
-            await self.create_plan(text)
+        """Everything the learner types that is not a /shortcut. Plain English drives the whole lesson."""
+        said = text.strip()
+        short = len(said.split()) <= SHORT_WORDS
+        if self.session.phase == "ask_goal":
+            await self.create_plan(said)
             return
         if self.session.phase == "plan_review":
-            if YES.match(text.strip()):
+            if YES.match(said):
                 await self.accept_plan()
             else:
-                await self.revise_plan(text)
+                await self.revise_plan(said)
             return
-        if self.session.exercise_stage == "explain" and self.lesson() is not None:
-            await self.answer_prediction(text)
+        if (new := NEW_SUBJECT.match(said)) is not None:
+            await self.new_goal(new.group("topic"))
             return
-        await self.run_turn(Trigger.LEARNER_MESSAGE, learner_text=text)
+        if self.plans.active() is None:
+            finished = self.plans.get(self.session.plan_id) if self.session.plan_id else None
+            if finished is not None and finished.status == "completed":
+                await self.run_turn(Trigger.LEARNER_MESSAGE, learner_text=said)  # e.g. answering a last question
+            else:
+                await self.create_plan(said)
+            return
+        if short and SHOW_PLAN.search(said):
+            self.ui.note(self.plan_markdown())
+            return
+        lesson = self.lesson()
+        stage = self.session.exercise_stage if lesson is not None else None
+        if stage == "explain":
+            await (self.skip_prediction() if short and SKIP.match(said) else self.answer_prediction(said))
+            return
+        if stage == "attempt" and lesson is not None:
+            await self._during_attempt(lesson, said, short)
+            return
+        # Between steps: the current step has not started yet, or the last one just finished.
+        if short and SKIP.match(said):
+            await self.skip_step()
+        elif short and NEXT.match(said):
+            await self.start_step()
+        else:
+            calls = await self.run_turn(
+                Trigger.LEARNER_MESSAGE, learner_text=said, tools=[*actions.TOOLS, actions.START_TOOL]
+            )
+            await self._act_on(calls, None)
+
+    async def _during_attempt(self, lesson: Lesson, said: str, short: bool) -> None:
+        """The learner is doing the task. Saying they are done, answering, or asking for help all just work."""
+        if short and DONE.match(said):
+            await self.check()
+            return
+        if short and HINT.search(said):
+            await self.hint()
+            return
+        if short and SOLUTION.search(said):
+            await self.solution()
+            return
+        if short and SKIP.match(said):
+            await self.skip_step()
+            return
+        if _has_answer_check(lesson) and short and not said.endswith("?"):
+            result = await self.check(answer=said, auto=True)  # their words might be the answer itself
+            if result is not None and result.passed:
+                return
+        tools = [*actions.TOOLS, *([actions.ASSESS_TOOL] if _needs_review(lesson) else [])]
+        calls = await self.run_turn(Trigger.LEARNER_MESSAGE, learner_text=said, tools=tools)
+        await self._act_on(calls, lesson)
+
+    async def _act_on(self, calls: list[ToolCall], lesson: Lesson | None) -> None:
+        """Carry out what the tutor decided from the learner's plain-English message."""
+        for parsed in (actions.validate(c) for c in calls):
+            if isinstance(parsed, actions.RequestCheck) and lesson is not None:
+                await self.check(answer=parsed.answer.strip() or None)
+                return
+            if isinstance(parsed, actions.AssessStep) and lesson is not None and _needs_review(lesson):
+                attempt = self.evidence.current_attempt(lesson.id) or self.evidence.start_attempt(
+                    self.session_id, lesson, self.session.mode
+                )
+                self._apply_verdict(lesson, attempt.id, parsed)
+                return
+            if isinstance(parsed, actions.StartStep) and lesson is None:
+                await self.start_step()
+                return
 
     async def run_turn(
         self,
@@ -1502,17 +1630,6 @@ class Engine:
                 f"confirm: `/memory confirm {item}` or `/memory reject {item}`.",
                 "info",
             )
-        elif isinstance(parsed, actions.RequestCheck):
-            lesson = self.lesson()
-            if trigger != Trigger.LEARNER_MESSAGE or lesson is None:
-                return
-            if lesson.risk == "runs_learner_code":
-                self.ui.note(
-                    "The tutor suggests running `/check` (it runs your code, so you start it).",
-                    "info",
-                )
-            else:
-                self._spawn(self.check())
 
     # ================================================================ observation control
     async def pause_observation(self) -> None:

@@ -97,8 +97,10 @@ are stored (redacted) instead.
 ## 2026-10-19 — Silent auto-checks
 After a relevant command finishes or an exercise file is saved, non-executing
 checkers run quietly. A pass is announced and recorded; a fail is not recorded
-unless the learner asked with `/check` (no "failure" for work in progress).
-Checks that run learner code never run automatically.
+unless the learner asked for a check (no "failure" for work in progress).
+Checks that run learner code run automatically only after a successful command
+in the step folder, and only if the learner allowed running their code for the
+session (updated by the continuous-assessment decision below).
 
 ## 2026-10-19 — Shell announcement is best effort; sync recovers
 A shell started before the tutor listens skips its "session started" message
@@ -152,3 +154,14 @@ The very first session (no other sessions, no plans, nothing said yet) opens
 with a short walkthrough of the screen before the permission question. It is
 shown, not stored as a tutor message, so it does not use model context.
 `/tour` replays it.
+
+## 2026-10-19 — Continuous assessment in plain English
+Learner request: no `/check` (or any command) should be needed. Short messages
+are matched by the engine ("done", "hint", "next", "skip", "show the plan",
+"new subject: …"), so this works even without a real model. Longer messages go
+to the model with tools: `request_check` (with the learner's answer in their
+own words), `assess_step` (steps without automatic checks) and `start_step`.
+The model only decides *when* to check; trusted code still decides *whether*
+the work passed, and model verdicts stay "unverified". A short message that
+might be the answer is tried quietly first; a wrong guess records no failure.
+Slash commands remain as optional shortcuts and are never suggested.

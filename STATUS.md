@@ -30,13 +30,13 @@ pytest-asyncio 1.4.0, mypy 2.4.0, ruff 0.17.0, pynvim 0.6.0.
 
 ## Tests actually run (latest)
 
-Command: `uv run pytest -m "not live"` → **178 passed, 2 deselected** (after
-the UI, setup and walkthrough rework; the end-to-end tests were run again after
-the last fix and passed).
+Command: `uv run pytest -m "not live"` → **181 passed, 2 deselected** (after
+the plain-English assessment change; the end-to-end flow now says "I think I'm
+done" instead of `/check`).
 
 | Group | Count | What they use |
 |---|---|---|
-| `tests/unit` | 159 | Pure logic, real SQLite, real IPC socket, real Python subprocesses, Textual Pilot (tutor pane and full-screen setup), real SDK parsing via `httpx2.MockTransport` |
+| `tests/unit` | 162 | Pure logic, real SQLite, real IPC socket, real Python subprocesses, Textual Pilot (tutor pane and full-screen setup), real SDK parsing via `httpx2.MockTransport` |
 | `tests/integration` | 17 | Real tmux (private sockets), real zsh with the hooks, real headless Neovim with the plugin |
 | `tests/e2e` | 2 | The real `mentor` command, tmux, zsh, Neovim, and the Textual tutor pane, mock provider |
 | `tests/live` | 2 | **Not run** (skipped: needs your API key and model id) |
@@ -98,6 +98,15 @@ tmux sockets.
 - `mentor init`: full-screen, five steps, shared save logic with `--plain`/`--yes`; offers to start.
 - First `mentor start` opens setup if needed; the first session begins with a short tour (`/tour` replays it).
 - tmux: bars in terminal colours, pane labels "Mentor", "Editor · nvim", "Shell · zsh".
+
+## Assessment in plain English (current)
+- No commands needed. "done", answers, "hint", "next", "skip", "show the plan", "new subject: …" are
+  handled directly; longer messages go to the model, which can call `request_check` (with the learner's
+  answer), `assess_step` or `start_step`. Trusted code still decides pass or fail.
+- Running the program successfully in the step folder checks the step by itself, if running code was
+  allowed for the session.
+- Tested with the mock provider and recorded tool calls; a real model's tool use is not yet tested.
+- Slash commands still work as optional shortcuts; no message suggests them any more.
 
 ## Learning flow (current)
 Welcome asks what to learn → the model proposes a plan → learner accepts or revises → steps are prepared

@@ -90,7 +90,7 @@ async def test_ui_lesson_approval_and_cancel(ws: Path) -> None:
         await pilot.pause(0.4)
         assert "Module 1: First programs" in texts(app)
         assert "proposed plan · 3 steps" in line(app, "#where")
-        assert "Type yes to start" in str(app.query_one("#input", PromptInput).placeholder)
+        assert "Say yes to start" in str(app.query_one("#input", PromptInput).placeholder)
         app.query_one("#input").text = "yes"  # type: ignore[attr-defined]
         await pilot.press("enter")
         await answer_modal(pilot, "y")  # create the step's files: yes, this time

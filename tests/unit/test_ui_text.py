@@ -52,11 +52,13 @@ def test_stage_marks_use_shapes_not_only_colour() -> None:
 
 def test_input_hints_say_what_to_type_next() -> None:
     assert "What do you want to learn?" in input_hints(info())[0]
-    assert input_hints(info(phase="plan_review", subject="x"))[0].startswith("Type yes")
+    assert input_hints(info(phase="plan_review", subject="x"))[0].startswith("Say yes")
     learning = {"phase": "learning", "subject": "x", "steps": 3, "step": 1}
     assert "prediction" in input_hints(info(**learning, step_stage="explain"))[0]
-    assert "/check" in input_hints(info(**learning, step_stage="attempt"))[0]
-    assert "/lesson" in input_hints(info(**learning))[0]
+    assert "Tell me when you are done" in input_hints(info(**learning, step_stage="attempt"))[0]
+    assert "“next”" in input_hints(info(**learning))[0]
+    for state in (info(), info(phase="plan_review", subject="x"), info(**learning, step_stage="attempt")):
+        assert "/" not in " ".join(input_hints(state)).replace("Ctrl+", "")  # no slash commands suggested
 
 
 def test_state_words_and_sync_problems() -> None:

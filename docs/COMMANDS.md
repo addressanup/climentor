@@ -24,10 +24,31 @@ from the project folder.
 
 `SESSION` can be a full id or a unique prefix (see `mentor sessions`).
 
-## Tutor-pane commands (`/...`)
+## Talking to the tutor (no commands needed)
 
-Type these in the tutor pane (left). Anything that does not start with `/` is
-a message to the tutor. The same table is shown by `/help`.
+Just type in plain English in the tutor pane (left). The tutor checks your
+work as you go:
+
+| You say (any similar words) | What happens |
+|---|---|
+| "done", "I think I'm done", "check it" | Your work is checked by trusted code |
+| An answer to the step's question, e.g. "int" or "I think it's an int" | Your answer is checked |
+| "hint", "I'm stuck" | The next, slightly stronger hint (recorded as help) |
+| "next", "ready", "continue", "let's go" | The next step starts |
+| "skip" | Skips the prediction question, or the current step |
+| "show the plan" | Shows your plan and where you are |
+| "show me the solution" | Shows the solution (asks first; recorded as full help) |
+| "new subject: Rust" | Starts a new learning plan |
+
+Short messages like these are handled directly. For anything longer, the AI
+tutor decides: if you say you have finished or give an answer, it runs the
+check itself. If you allowed running your code "for this session", running
+your program successfully in the step folder also checks the step.
+
+## Tutor-pane shortcuts (`/...`)
+
+Optional. Anything that does not start with `/` is a message to the tutor.
+The same table is shown by `/help`.
 
 | Command | What it does |
 |---|---|

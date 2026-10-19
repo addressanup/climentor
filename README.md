@@ -86,12 +86,12 @@ colour is hard to read, set `CLI_MENTOR_THEME=light` (or `dark`).
 
 ## Everyday commands
 
-| Where | Command |
+| Where | What to type |
 |---|---|
 | Terminal | `mentor start`, `mentor resume`, `mentor stop`, `mentor sessions` |
-| Tutor pane | `/learn <topic>`, `/plan`, `/lesson`, `/hint`, `/explain <term>`, `/check`, `/observe pause`, `/tour` |
+| Tutor pane | Plain English. "done" when you finish (your work is checked), "hint" if you are stuck, "next" to move on, or any question. No commands needed |
 
-Full list: [docs/COMMANDS.md](docs/COMMANDS.md) or `/help`.
+Optional shortcuts and the full list: [docs/COMMANDS.md](docs/COMMANDS.md) or `/help`.
 
 ## Verify it works (for developers)
 

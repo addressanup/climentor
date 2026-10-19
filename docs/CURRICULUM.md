@@ -30,8 +30,10 @@ The folder name is fixed when the plan is made. `mentor subjects` lists them;
 `mentor start --subject 2` continues one without asking; `mentor start --new`
 starts a new one.
 
-Commands: `/learn <topic>`, `/plan`, `/plan accept`, `/plan skip`,
-`/plan list`, `/plan switch <id>`, `/lesson`, `/check [answer]`.
+Everything works in plain English ("done", "next", "hint", "skip", "show the
+plan", "new subject: <topic>"); see `docs/COMMANDS.md`. Optional shortcuts:
+`/learn <topic>`, `/plan`, `/plan accept`, `/plan skip`, `/plan list`,
+`/plan switch <id>`, `/lesson`, `/check [answer]`.
 
 ## What the model may send
 
@@ -54,7 +56,7 @@ Starter files are written into the practice folder only after you approve.
 | `file_contains` | The file contains a piece of text (plain text, no regex) |
 | `command_succeeded` | A command starting with that program (e.g. `c++`, `make`) was observed finishing with exit 0 |
 | `program_output` | Compiles C (`cc -std=c17`) or C++ (`c++ -std=c++20`), or runs Python, then compares the output. Flags are fixed in code. Needs your "run my code" approval. Host execution with limits, **not a sandbox**. |
-| `learner_answer` | Compares your `/check <answer>` with accepted answers (ignores case and punctuation) |
+| `learner_answer` | Compares your answer with accepted answers (ignores case and punctuation). You just type it; if you answer in a sentence, the AI tutor passes on only your answer words, and trusted code still does the comparison |
 | `editor_commands` | Opt-in Neovim command counts; only affects "technique verified/unverified" |
 
 The model chooses which checks to use and their data. It cannot add commands,

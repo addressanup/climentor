@@ -117,24 +117,21 @@ def input_hints(info: StatusInfo | None) -> tuple[str, str]:
     """(grey text inside the empty input box, key hints under it)."""
     quit_ = "Ctrl+Q quit"
     if info is None:
-        return "Type a message…", f"Enter send · /help commands · {quit_}"
+        return "Type a message…", f"Enter send · Ctrl+J new line · {quit_}"
     if info.phase == "plan_review":
-        return "Type yes to start, or say what to change", f"yes start · /plan show it again · {quit_}"
+        return "Say yes to start, or say what to change", f"say “yes” to start · or say what to change · {quit_}"
     if info.subject is None:
         return (
             "What do you want to learn? For example: C++ from the very basics",
-            f"Enter send · Ctrl+J new line · /help commands · {quit_}",
+            f"Enter send · Ctrl+J new line · {quit_}",
         )
     if info.step is None:
-        return "Type /learn <topic> to start something new", f"/learn new subject · /progress · /help · {quit_}"
+        return "Say “new subject:” and a topic, or ask for a review", f"just type · {quit_}"
     if info.step_stage == "explain":
-        return (
-            "Your prediction: what do you think will happen?",
-            "Enter send · /lesson skip no prediction · /explain <word> · /help",
-        )
+        return "Your prediction: what do you think will happen?", f"answer in your own words · “skip” · {quit_}"
     if info.step_stage == "attempt":
-        return "Ask a question, or type /check when you are done", "/check · /hint · /explain <word> · /help"
-    return "Type /lesson to start this step, or ask a question", f"/lesson start step · /plan · /progress · {quit_}"
+        return "Tell me when you are done, or ask a question", f"“done” to check · “hint” if stuck · {quit_}"
+    return "Say “next” to start this step, or ask a question", f"“next” to start · “show the plan” · {quit_}"
 
 
 def state_segments(info: StatusInfo | None, busy: bool, frame: int) -> list[Segment]:

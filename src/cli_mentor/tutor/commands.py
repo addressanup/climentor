@@ -15,7 +15,8 @@ from .engine import Engine
 from .policy import Trigger
 
 HELP = """\
-**Commands** (type them in the tutor pane; anything else is a message to the tutor)
+**You never need these.** Just talk to me: say “done” when you finish, “hint” if you are stuck, “next” to
+move on, “skip” to skip, “show the plan”, or “new subject: <topic>”. The commands below are optional shortcuts.
 
 | Command | What it does |
 |---|---|

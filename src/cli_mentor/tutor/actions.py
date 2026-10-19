@@ -22,6 +22,14 @@ class ProposeMemory(BaseModel):
 class RequestCheck(BaseModel):
     model_config = ConfigDict(extra="forbid")
     reason: str = Field(default="", max_length=200)
+    # The learner's answer to the step's question, in a few words of their own (trusted code compares it).
+    answer: str = Field(default="", max_length=200)
+
+
+class StartStep(BaseModel):
+    """The learner said, in their own words, that they are ready for the next step."""
+
+    model_config = ConfigDict(extra="forbid")
 
 
 class AssessStep(BaseModel):
@@ -39,6 +47,12 @@ ASSESS_TOOL = ToolSpec(
     AssessStep.model_json_schema(),
 )
 
+START_TOOL = ToolSpec(
+    "start_step",
+    "Start the next step of the plan. Call it when the learner says, in any words, that they are ready to go on.",
+    StartStep.model_json_schema(),
+)
+
 TOOLS: list[ToolSpec] = [
     ToolSpec(
         "propose_memory",
@@ -47,17 +61,20 @@ TOOLS: list[ToolSpec] = [
     ),
     ToolSpec(
         "request_check",
-        "Ask the system to run the trusted checker for the current exercise.",
+        "Run the trusted checker for the current step. Call it when the learner says, in any words, that they "
+        "have finished, or when they answer the step's question. Put their answer in `answer` (a few words, "
+        "their own wording, for example `int`).",
         RequestCheck.model_json_schema(),
     ),
 ]
 
 
-def validate(call: ToolCall) -> ProposeMemory | RequestCheck | AssessStep | None:
+def validate(call: ToolCall) -> ProposeMemory | RequestCheck | AssessStep | StartStep | None:
     models: dict[str, type[BaseModel]] = {
         "propose_memory": ProposeMemory,
         "request_check": RequestCheck,
         "assess_step": AssessStep,
+        "start_step": StartStep,
     }
     model = models.get(call.name)
     if model is None:

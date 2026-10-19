@@ -111,9 +111,7 @@ class PlanStepVerifier:
             elif isinstance(c, LearnerAnswer):
                 given = _normalise_answer(ctx.answer or "")
                 ok = bool(given) and given in {_normalise_answer(a) for a in c.accepted}
-                detail = (
-                    "correct" if ok else ("type `/check <your answer>`" if not given else "not the expected answer")
-                )
+                detail = "correct" if ok else ("tell me your answer" if not given else "not the expected answer")
                 results.append(Check(f"Answer: {c.question}", ok, detail, "learner_answer"))
         if not results:
             return VerificationResult(self.id, False, [], technique, technique_detail, executed, needs_review=True)
