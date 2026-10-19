@@ -108,7 +108,9 @@ def cmd_start(args: argparse.Namespace) -> int:
         return 1
     sessions.touch(sid, tmux_session=info.tmux_session)
     store.close()
-    print(f"Session {sid} ready in tmux session '{info.tmux_session}' (private tmux server 'cli-mentor').")
+    from .lifecycle import socket_name
+
+    print(f"Session {sid} ready in tmux session '{info.tmux_session}' (private tmux server '{socket_name()}').")
     if os.environ.get("CLI_MENTOR_DEMO"):
         print("DEMO MODE: real tmux, Neovim and zsh; the tutor is the offline MOCK (not an AI).")
     if args.detach:
@@ -377,8 +379,12 @@ def cmd_tutor(args: argparse.Namespace) -> int:
 
     app = MentorApp(factory, on_detach=detach, startup_notes=notes)
     result = app.run()
-    if result == "end" and in_tmux and tmux_session:
-        tmux.kill_session(tmux_session)  # closes this pane too; nothing runs after this
+    if result == "end":
+        import shutil
+
+        shutil.rmtree(paths.runtime_dir / info.id[:12], ignore_errors=True)  # token, zsh wrapper files
+        if in_tmux and tmux_session:
+            tmux.kill_session(tmux_session)  # closes this pane too; nothing runs after this
     return 0
 
 

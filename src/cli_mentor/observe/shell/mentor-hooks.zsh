@@ -101,7 +101,10 @@ if [[ -n $_mentor_nvim_rtp ]]; then
   }
 fi
 
+# Announce this shell. Best effort: if the tutor is not listening yet, skip it
+# without using a sequence number (nothing the learner did was missed).
 () {
+  [[ -S $_mentor_sock ]] || return 0
   local d; _mentor_json "$PWD"; d=$REPLY
   _mentor_send "\"type\":\"shell.session_started\",\"shell\":\"zsh\",\"pid\":$$,\"pane\":\"${TMUX_PANE:-}\",\"cwd\":\"$d\""
 }

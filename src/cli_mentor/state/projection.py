@@ -249,6 +249,12 @@ class WorkspaceState:
             if env.source.kind == SourceKind.SHELL:
                 self.shell_history_incomplete = True
             result.changed.add(f"sync:{env.source.kind.value}")
+        elif env.source.kind == SourceKind.SHELL and src.status == SyncStatus.INCOMPLETE:
+            # Shell history cannot be re-fetched, but events are flowing again:
+            # the current view is fresh; the history note stays.
+            src.status = SyncStatus.CURRENT
+            src.detail = "receiving again; earlier history incomplete"
+            result.changed.add("sync:shell")
         handler = getattr(self, "_on_" + env.payload.type.replace(".", "_"), None)
         if handler is not None:
             handler(env, result)
