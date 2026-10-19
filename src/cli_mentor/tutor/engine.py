@@ -37,6 +37,7 @@ from ..curriculum.plans import (
     StepDetails,
     StepInfo,
     build_lesson,
+    lesson_id,
     render_plan,
 )
 from ..curriculum.runner import HostRunner
@@ -99,6 +100,35 @@ YES = re.compile(
 )
 APPROVE_CHOICES = [("y", "Yes, this time"), ("s", "Yes, for this session"), ("n", "No")]
 SCOPE_FOR = {"y": Scope.ONCE, "s": Scope.SESSION, "p": Scope.PERSISTENT}
+
+TOUR = """\
+**Welcome to CLI Mentor.** I am your tutor. You learn by doing real work in real tools, \
+and I help from this pane.
+
+**Your screen**
+- **Left: me.** Type here to talk to me.
+- **Top right: Neovim**, for writing code.
+- **Bottom right: the shell**, for running it.
+
+**Moving around**
+- Click a pane, or press **Ctrl+b**, then an **arrow key**.
+- **Ctrl+b**, then **z** makes a pane full size. Do it again to go back.
+
+**Talking to me**
+- Type, then press **Enter**. **Ctrl+J** starts a new line.
+- Commands start with `/`. `/help` lists them, and `/tour` shows this again.
+
+**How we work:** I explain new words and symbols first. Then you do the task yourself. \
+I give small hints when you ask or get stuck, and I check your work with real tests."""
+
+GOAL_QUESTION = """\
+**What would you like to learn?** Say it in your own words. For example:
+
+- C++ from the very basics to the most advanced features
+- Python for automating everyday tasks
+- Git, from the first commit to rebasing
+
+I will turn it into a step-by-step plan, and you can change the plan before we start."""
 
 
 def _redact_obj(value: Any) -> Any:
@@ -198,7 +228,9 @@ class Engine:
         self._processor: asyncio.Task[None] | None = None
         self._deferred: asyncio.TimerHandle | None = None
         self._status_text = ""
-        self._last_tmux_status = 0.0
+        self._tmux_status_wanted = ""
+        self._tmux_status_timer: asyncio.TimerHandle | None = None
+        self._last_tmux_status = -1.0e9  # long ago, so the first update goes out at once
         self.socket_path: Path | None = None
         self.token_file: Path | None = None
 
@@ -206,6 +238,9 @@ class Engine:
     async def start(self, *, observe: bool = True, greet: bool = True) -> None:
         purge_expired(self.store, self.config)
         self._processor = asyncio.create_task(self._process_loop(), name="mentor-processor")
+        self.push_status()
+        if greet and self._first_run():
+            self.show_tour()
         if observe:
             await self._start_ipc()
             if await self._ensure_observation_consent():
@@ -224,6 +259,8 @@ class Engine:
         await self.cancel_turn("cancelled", "session ending")
         if self._deferred is not None:
             self._deferred.cancel()
+        if self._tmux_status_timer is not None:
+            self._tmux_status_timer.cancel()
         if self.terminal is not None:
             await self.terminal.stop()
             self.terminal = None
@@ -284,13 +321,14 @@ class Engine:
         if self.permissions.check(Capability.OBSERVE_TERMINAL).allowed:
             return True
         answer = await self.ui.ask(
-            "Allow observation?",
-            "The tutor would see:\n"
-            "- output of the shell pane in THIS session (not your other terminals)\n"
-            "- commands you run there (not ones starting with a space)\n"
-            f"- Neovim buffers inside {root}, including unsaved edits\n"
-            "Secrets are filtered on a best-effort basis. You can pause any time with /observe pause.",
-            [("s", "Yes, for this session"), ("p", "Yes, remember"), ("n", "No")],
+            "May I watch this session?",
+            "To help, I need to see your work in this session:\n"
+            "- the shell pane: the commands you run and what they print\n"
+            f"- Neovim: files inside {root}, even before you save\n\n"
+            "I cannot see your other windows or terminals. Commands that start with a space stay private. "
+            "I filter out secrets such as passwords and keys (best effort).\n"
+            "You can pause any time with /observe pause.",
+            [("s", "Yes, for this session"), ("p", "Yes, and remember"), ("n", "No")],
         )
         if answer not in ("s", "p"):
             return False
@@ -531,6 +569,9 @@ class Engine:
                 st = SyncStatus.DISCONNECTED if st is not None else None
             sources[label] = "paused" if self.paused else (st.value if st else "none")
         perms = sorted({g.capability.value for g in self.permissions.active_grants()})
+        plan = self.plans.get(self.session.plan_id) if self.session.plan_id else None
+        done, total = self.plans.progress(plan.id) if plan else (0, 0)
+        step = self.plans.current(plan) if plan and plan.status != "proposed" else None
         return StatusInfo(
             goal=self.session.goal,
             exercise=self.session.active_exercise,
@@ -545,33 +586,54 @@ class Engine:
             permissions=perms,
             busy=self.inflight is not None and not self.inflight.task.done(),
             usage=self.sessions.usage_totals(self.session_id),
+            phase=self.session.phase,
+            subject=plan.title if plan else None,
+            step=step.position if step else None,
+            steps=total,
+            done=done,
+            step_title=step.title if step else None,
+            step_stage=(
+                self.session.exercise_stage
+                if plan and step and self.session.active_exercise == lesson_id(plan.id, step.step_id)
+                else None
+            ),
         )
 
     def push_status(self) -> None:
         info = self.status_info()
         self.ui.status(info)
-        text = info.line()
-        now = self.monotonic()
-        if (
-            self.tmux is not None
-            and self.tmux_session
-            and text != self._status_text
-            and now - self._last_tmux_status > 0.5
-        ):
-            self._status_text = text
-            self._last_tmux_status = now
-            tmux, session = self.tmux, self.tmux_session
-            self._spawn(
-                asyncio.to_thread(
-                    tmux.run,
-                    "set-option",
-                    "-t",
-                    f"={session}",
-                    "status-right",
-                    text.replace("#", "##"),
-                    check=False,
-                )
+        self._tmux_status_wanted = info.line()
+        self._sync_tmux_status()
+
+    def _sync_tmux_status(self) -> None:
+        """Copy the status to the tmux bar, at most twice a second; a skipped update is sent later."""
+        text = self._tmux_status_wanted
+        if self.tmux is None or not self.tmux_session or text == self._status_text:
+            return
+        wait = 0.5 - (self.monotonic() - self._last_tmux_status)
+        if wait > 0:
+            if self._tmux_status_timer is None:
+                with contextlib.suppress(RuntimeError):  # no event loop: nothing to schedule on
+                    self._tmux_status_timer = asyncio.get_running_loop().call_later(wait, self._tmux_timer_fired)
+            return
+        self._status_text = text
+        self._last_tmux_status = self.monotonic()
+        tmux, session = self.tmux, self.tmux_session
+        self._spawn(
+            asyncio.to_thread(
+                tmux.run,
+                "set-option",
+                "-t",
+                f"={session}:",  # tmux 3.7 rejects a bare "=name" here; "=name:" works
+                "status-right",
+                text.replace("#", "##"),
+                check=False,
             )
+        )
+
+    def _tmux_timer_fired(self) -> None:
+        self._tmux_status_timer = None
+        self._sync_tmux_status()
 
     # ================================================================ lessons
     def lesson(self) -> Lesson | None:
@@ -768,7 +830,7 @@ class Engine:
         if goal.strip():
             await self.create_plan(goal)
         else:
-            self._say("What would you like to learn? Describe it in your own words.", "plan")
+            self._say(GOAL_QUESTION, "plan")
 
     def _toolchain(self) -> str:
         tools = [
@@ -1086,13 +1148,27 @@ class Engine:
         )
 
     # ================================================================ turns
-    def _say(self, text: str, trigger: str = "session_start") -> None:
+    def _say(self, text: str, trigger: str = "session_start", *, store: bool = True) -> None:
         """A deterministic tutor message (no model call); stored so the model sees it later."""
         self.turn_counter += 1
         self.ui.tutor_begin(self.turn_counter, trigger, "CLI Mentor")
         self.ui.tutor_delta(self.turn_counter, text)
         self.ui.tutor_end(self.turn_counter, "complete")
-        self.sessions.add_message(self.session_id, "tutor", text, trigger=trigger)
+        if store:
+            self.sessions.add_message(self.session_id, "tutor", text, trigger=trigger)
+
+    def _first_run(self) -> bool:
+        """True only for the very first session: no other sessions, no plans, nothing said yet."""
+        row = self.store.conn.execute(
+            "SELECT (SELECT COUNT(*) FROM sessions WHERE id != ?) + (SELECT COUNT(*) FROM learning_plans) "
+            "+ (SELECT COUNT(*) FROM messages WHERE session_id = ?)",
+            (self.session_id, self.session_id),
+        ).fetchone()
+        return int(row[0]) == 0
+
+    def show_tour(self) -> None:
+        """The short walkthrough of the screen (first session, or `/tour`). Not sent to the model."""
+        self._say(TOUR, "tour", store=False)
 
     def _other_subjects_note(self) -> str:
         others = self.plans.subjects()
@@ -1122,12 +1198,7 @@ class Engine:
         if plan is None:
             self.session.phase = "ask_goal"
             self._save_session()
-            self._say(
-                "Welcome to your learning session! I am your CLI Mentor. You do the work in Neovim and the shell "
-                "on the right; I explain every new word and symbol, give small hints, and check your work.\n\n"
-                "**What would you like to learn?** For example: “C++ from the very basics to the most advanced "
-                "features”. I will turn it into a step-by-step plan for you." + self._other_subjects_note()
-            )
+            self._say(GOAL_QUESTION + self._other_subjects_note())
             return
         self.session.plan_id = plan.id
         self.session.phase = "learning"

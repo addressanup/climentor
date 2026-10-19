@@ -8,8 +8,8 @@ from the project folder.
 | Command | What it does |
 |---|---|
 | `mentor doctor [--json]` | Checks tools, versions, folders, and settings. Prints fixes. Installs nothing. |
-| `mentor init [--yes] [--provider mock\|anthropic\|openai] [--model ID] [--workspace PATH] [--base-url URL]` | Setup: practice folder (asks first), profile confirmation, observation approval, provider, key, model. |
-| `mentor start [--subject N\|NAME] [--new] [--provider P] [--detach] [--nested]` | If you have subjects, asks which one to continue (or a new one), then opens its session with the panes in that subject's folder. `--subject` picks without asking, `--new` starts a new subject. `--provider` overrides the config for this session only. |
+| `mentor init [--yes] [--plain] [--provider mock\|anthropic\|openai] [--model ID] [--workspace PATH] [--base-url URL]` | Setup in five short steps: practice folder, about you (confirm, edit, or remove each guess), how often the tutor speaks up, AI model (Anthropic, OpenAI, an OpenAI-compatible service such as DeepSeek, or skip), review. At a terminal it opens full screen (Enter continues, Space ticks, ↑ ↓ choose, Esc goes back, Ctrl+C quits without saving) and offers to start your first session at the end. `--plain` asks plain questions instead; `--yes` accepts defaults (for scripts). |
+| `mentor start [--subject N\|NAME] [--new] [--provider P] [--detach] [--nested]` | First time: opens the setup above, then your first session. After that: if you have subjects, asks which one to continue (or a new one), then opens its session with the panes in that subject's folder. `--subject` picks without asking, `--new` starts a new subject. `--provider` overrides the config for this session only. |
 | `mentor subjects` | Lists your learning subjects, their progress, and their folders. |
 | `mentor resume [SESSION] [--detach] [--nested]` | Re-attaches. Restarts the tutor pane if it crashed. Rebuilds the panes if tmux was closed; learning state is kept. |
 | `mentor stop [SESSION] [--force]` | Closes a session's panes. Refuses while Neovim is open or a command is running, unless `--force`. |
@@ -32,6 +32,7 @@ a message to the tutor. The same table is shown by `/help`.
 | Command | What it does |
 |---|---|
 | `/help` | Show this list |
+| `/tour` | A short walkthrough of the screen and how we work |
 | `/goal [text]` | Show or set your goal for this session |
 | `/learn <topic>` | Start a new learning plan, e.g. `/learn C++ from the basics` |
 | `/plan` | Show your plan and where you are |
@@ -81,7 +82,7 @@ a message to the tutor. The same table is shown by `/help`.
 | Tutor pane | Esc | Cancel the tutor's reply |
 | Tutor pane | Ctrl+Q | Quit menu (detach / end / cancel) |
 | Tutor pane | Page Up / Page Down | Scroll the conversation |
-| Question dialogs | the letter in `[ ]` | Choose; Esc means "no" |
+| Question dialogs | the letter shown, or ↑ ↓ then Enter | Choose; Esc means "no" (or "cancel") |
 | tmux | Ctrl+b then an arrow | Move to another pane |
 | tmux | Ctrl+b then z | Zoom the current pane (again to unzoom) |
 | tmux | Ctrl+b then d | Detach (everything keeps running) |

@@ -132,3 +132,23 @@ title (unique, fixed at creation) and remembers the session that studies it.
 session and conversation with the panes in its folder. A new session starts a
 new subject. `/plan switch` inside a session still works but shares that
 session's conversation.
+
+## 2026-10-19 — The UI uses the terminal's own colours
+Learner choice. The tutor pane, setup screens and tmux bars use ANSI colours,
+so they match Neovim and the shell. Only the accent depends on light or dark
+(guessed from `COLORFGBG`, overridden by `CLI_MENTOR_THEME`). Meaning is never
+carried by colour alone: status and stages use words and shapes (● ○ ✓ ‖).
+
+## 2026-10-19 — Full-screen setup, plain fallback, one save path
+Learner choice. `mentor init` opens a Textual setup at a terminal. Scripts,
+`--yes` and `--plain` use plain questions. Both build a `SetupAnswers` and save
+it with `apply_answers`, so they cannot drift apart. In setup, Enter always
+means "continue" (lists and checkboxes use Space), so the keys are the same on
+every page. A pasted API key goes to the Keychain at once (needed to fetch the
+model list); everything else is saved only at the review step.
+
+## 2026-10-19 — First-session tour, not sent to the model
+The very first session (no other sessions, no plans, nothing said yet) opens
+with a short walkthrough of the screen before the permission question. It is
+shown, not stored as a tutor message, so it does not use model context.
+`/tour` replays it.

@@ -5,12 +5,15 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Protocol
 
+OBSERVATION_WORDS = {"on": "● observing", "paused": "‖ paused", "off": "○ observation off"}
+SOURCE_NAMES = {"term": "terminal", "shell": "shell", "nvim": "Neovim"}
+
 
 @dataclass
 class StatusInfo:
     goal: str | None
     exercise: str | None
-    stage: str | None
+    stage: str | None  # explain | attempt | verified
     mode: str
     observation: str  # "on" | "paused" | "off"
     sync: str
@@ -21,17 +24,41 @@ class StatusInfo:
     permissions: list[str]
     busy: bool
     usage: dict[str, int] = field(default_factory=dict)
+    phase: str = "ask_goal"  # ask_goal | plan_review | learning
+    subject: str | None = None  # the plan's title
+    step: int | None = None  # current step number (1-based)
+    steps: int = 0  # steps in the plan
+    done: int = 0  # steps done or skipped
+    step_title: str | None = None
+    step_stage: str | None = None  # the stage of the current step, None if it has not started
+
+    @property
+    def observation_words(self) -> str:
+        return OBSERVATION_WORDS.get(self.observation, self.observation)
+
+    @property
+    def model_words(self) -> str:
+        return "offline mock" if self.mock else (self.model or self.provider)
+
+    def problems(self) -> list[str]:
+        """Sources that are connected but not in sync, in words (empty when all is well)."""
+        if self.observation != "on":
+            return []
+        return [
+            f"{SOURCE_NAMES.get(k, k)} {v.replace('-', ' ')}"
+            for k, v in self.sources.items()
+            if v not in ("current", "none", "paused")
+        ]
 
     def line(self) -> str:
-        """Plain-text status (no colour needed to understand it)."""
-        src = " ".join(f"{k}:{v}" for k, v in self.sources.items())
-        ex = f"{self.exercise} ({self.stage})" if self.exercise else "none"
-        model = "MOCK" if self.mock else f"{self.provider}/{self.model or '?'}"
-        busy = " | TUTOR: writing" if self.busy else ""
-        return (
-            f"GOAL: {self.goal or '-'} | EX: {ex} | OBS: {self.observation.upper()} | "
-            f"SYNC: {self.sync} [{src}] | MODE: {self.mode} | MODEL: {model}{busy}"
-        )
+        """Short plain-text status for the tmux status bar (words, so colour is never needed)."""
+        parts = [self.subject or ("reviewing a plan" if self.phase == "plan_review" else "new subject")]
+        if self.step is not None and self.steps:
+            parts.append(f"step {self.step}/{self.steps}")
+        parts += [self.observation_words, *self.problems(), self.model_words]
+        if self.busy:
+            parts.append("writing…")
+        return " · ".join(parts)
 
 
 class UiSink(Protocol):

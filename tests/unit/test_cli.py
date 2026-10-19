@@ -191,7 +191,9 @@ def test_choose_subject_picker() -> None:
     subjects = [("C++ from the very basics", "3/40 steps"), ("Rust", "1/12 steps")]
     said: list[str] = []
     assert cli.choose_subject(subjects, ask=lambda _p: "", say=said.append) == 0  # Enter = most recent
-    assert "  1. C++ from the very basics  (3/40 steps)" in said and "  n. Start a new subject" in said
+    assert "   1  C++ from the very basics  3/40 steps" in said
+    assert "   2  Rust                      1/12 steps" in said
+    assert "   n  Start a new subject\n" in said
     assert cli.choose_subject(subjects, ask=lambda _p: "2", say=said.append) == 1
     assert cli.choose_subject(subjects, ask=lambda _p: "n", say=said.append) is None
     assert cli.choose_subject(subjects, ask=lambda _p: "9", say=said.append) is None
@@ -209,5 +211,14 @@ def test_subjects_command(mentor_env: dict[str, str], tmp_path: Path, capsys: py
     plans.activate(plans.create("learn C++", PlanOutline.model_validate(fixture()["plan"])).id)
     assert cli.main(["subjects"]) == 0
     out = capsys.readouterr().out
-    assert "1. C++ from the very basics" in out and str(tmp_path / "w" / "c-from-the-very-basics") in out
+    assert "   1  C++ from the very basics  ──────────  0/3 steps · studied just now" in out
+    assert str(tmp_path / "w" / "c-from-the-very-basics") in out
     assert cli.main(["start", "--detach", "--subject", "nope"]) == 1
+
+
+def test_relative_times_and_progress_bar() -> None:
+    now = 1_000_000.0
+    assert cli._ago(now - 30, now) == "just now" and cli._ago(now - 600, now) == "10 minutes ago"
+    assert cli._ago(now - 3700, now) == "1 hour ago" and cli._ago(now - 90_000, now) == "yesterday"
+    assert cli._ago(now - 5 * 86400, now) == "5 days ago" and cli._ago(None) == "never"
+    assert cli._bar(3, 10) == "━━━───────" and cli._bar(0, 0) == "──────────"

@@ -20,6 +20,7 @@ from .observe.ipc import new_token
 from .observe.shell import prepare_zdotdir, shell_environment
 from .paths import AppPaths, ensure_private_dir, write_private_file
 from .tmuxutil import DEFAULT_SOCKET, Tmux, TmuxError
+from .ui.theme import accent_name, terminal_is_light
 
 SESSION_PREFIX = "mentor-"
 PASSTHROUGH_ENV = (
@@ -31,10 +32,18 @@ PASSTHROUGH_ENV = (
     "XDG_CACHE_HOME",
     "PYTHON_KEYRING_BACKEND",
     "CLI_MENTOR_DEMO",
+    "CLI_MENTOR_THEME",
+    "COLORFGBG",
 )
 SECRET_ENV = ("ANTHROPIC_API_KEY", "OPENAI_API_KEY")
 
-TMUX_CONF = """\
+PANE_LABELS = {"tutor": "Mentor", "editor": "Editor", "shell": "Shell"}
+
+
+def tmux_conf(light: bool) -> str:
+    """Our private tmux settings. Bars use the terminal's own colours, like the tutor pane."""
+    accent = accent_name(light)
+    return f"""\
 # CLI Mentor's private tmux settings (only for the dedicated 'cli-mentor' server).
 # Your own ~/.tmux.conf is loaded first, if you have one.
 if-shell "test -f ~/.tmux.conf" "source-file ~/.tmux.conf"
@@ -45,11 +54,19 @@ set -g history-limit 10000
 set -g default-terminal "tmux-256color"
 set -g status on
 set -g status-interval 2
-set -g status-left " CLI Mentor "
+set -g status-style "bg=default,fg=default"
+set -g status-left "#[bold,fg={accent}] CLI Mentor #[default]"
 set -g status-left-length 14
-set -g status-right-length 260
+set -g status-right-length 200
+set -g status-right-style "dim"
+set -g window-status-format ""
+set -g window-status-current-format ""
 set -g pane-border-status top
-set -g pane-border-format " #{?pane_active,>> ,}#{@mentor_role} #{pane_current_command} "
+set -g pane-border-lines single
+set -g pane-border-style "fg=brightblack"
+set -g pane-active-border-style "fg={accent}"
+set -g pane-border-format " #{{?pane_active,#[bold],#[dim]}}#{{@mentor_label}}#[default]\
+#{{?#{{==:#{{@mentor_role}},tutor}},,#[dim] · #{{pane_current_command}}#[default]}} "
 """
 
 
@@ -76,9 +93,10 @@ def socket_name() -> str:
 
 def make_tmux(paths: AppPaths) -> Tmux:
     conf = paths.config_dir / "tmux.conf"
-    if not conf.exists() or conf.read_text() != TMUX_CONF:
+    text = tmux_conf(terminal_is_light())
+    if not conf.exists() or conf.read_text() != text:
         paths.config_dir.mkdir(parents=True, exist_ok=True)
-        conf.write_text(TMUX_CONF)
+        conf.write_text(text)
     return Tmux(socket_name(), config_file=str(conf))
 
 
@@ -100,6 +118,12 @@ def ensure_token(paths: AppPaths, session_id: str) -> Path:
     if not token_file.exists() or len(token_file.read_text().strip()) < 64:
         write_private_file(token_file, new_token())
     return token_file
+
+
+def _set_role(tmux: Tmux, pane: str, role: str) -> None:
+    """Tag a pane with its role (used to find it again) and the label shown on its border."""
+    tmux.run("set-option", "-p", "-t", pane, "@mentor_role", role)
+    tmux.run("set-option", "-p", "-t", pane, "@mentor_label", PANE_LABELS[role])
 
 
 def tutor_command(session_id: str) -> str:
@@ -167,7 +191,7 @@ def create_workspace(
         )
         created = True
         tutor = tmux.panes(name)[0].pane_id
-        tmux.run("set-option", "-p", "-t", tutor, "@mentor_role", "tutor")
+        _set_role(tmux, tutor, "tutor")
         tmux.run("set-option", "-p", "-t", tutor, "remain-on-exit", "on")
         tmux.run(
             "split-window",
@@ -182,7 +206,7 @@ def create_workspace(
             _without_secrets(nvim_cmd),
         )
         editor = next(p.pane_id for p in tmux.panes(name) if p.pane_id != tutor)
-        tmux.run("set-option", "-p", "-t", editor, "@mentor_role", "editor")
+        _set_role(tmux, editor, "editor")
         tmux.run(
             "split-window",
             "-v",
@@ -196,7 +220,7 @@ def create_workspace(
             _without_secrets(f"{shlex.quote(zsh_bin)} -l"),
         )
         shell = next(p.pane_id for p in tmux.panes(name) if p.pane_id not in (tutor, editor))
-        tmux.run("set-option", "-p", "-t", shell, "@mentor_role", "shell")
+        _set_role(tmux, shell, "shell")
         tmux.run("select-pane", "-t", tutor)
     except Exception:
         if created:

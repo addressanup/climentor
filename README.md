@@ -4,13 +4,17 @@ A tutor that sits beside your **real** terminal and Neovim, and helps you
 learn by doing.
 
 ```
-┌───────────────────┬──────────────────────────────┐
-│ Tutor             │ Neovim                       │
-│ (chat, hints,     ├──────────────────────────────┤
-│  checks)          │ zsh shell                    │
-├───────────────────┴──────────────────────────────┤
-│ GOAL | EX | OBS: ON | SYNC: current | MODE | MODEL│
-└──────────────────────────────────────────────────┘
+┌─ Mentor ───────────────────────┬─ Editor · nvim ─────────────────┐
+│ C++ from the very basics       │                                 │
+│ Hello, C++    ● learn ○ try ○ c│  your code                      │
+│ ━━━━━━━━━━──────────────────── │                                 │
+│ Mentor · lesson                ├─ Shell · zsh ───────────────────┤
+│ New words: …                   │                                 │
+│ ╭────────────────────────────╮ │  $ c++ hello.cpp -o hello       │
+│ │ Your prediction: …         │ │                                 │
+│ ╰────────────────────────────╯ │                                 │
+└────────────────────────────────┴─────────────────────────────────┘
+ CLI Mentor     C++ from the very basics · step 1/3 · ● observing · deepseek-chat
 ```
 
 - **You choose what to learn.** The tutor asks "What would you like to
@@ -43,15 +47,20 @@ uv sync
 # 3. Check your setup (installs nothing)
 uv run mentor doctor
 
-# 4. Set up: practice folder, profile, and which tutor model to use
+# 4. Set up (a full-screen guide: practice folder, about you, AI model)
 uv run mentor init
 
-# 5. Start learning
+# 5. Start learning (step 4 offers to do this for you)
 uv run mentor start
 ```
 
-Inside the session, answer the tutor's question "What would you like to learn?"
-in the tutor pane (left). It proposes a plan; reply **yes** to start.
+`mentor init` walks you through five short steps: Enter continues, Space
+ticks a box, Esc goes back. Over SSH or in scripts, use `mentor init --plain`.
+
+Your first session starts with a short tour of the screen. Then the tutor asks
+"What would you like to learn?" in the tutor pane (left). It proposes a plan;
+reply **yes** to start. The header always shows the subject, the step you are
+on, and where you are in it (learn, try, check). `/tour` shows the tour again.
 Each subject gets its own folder and conversation. Next time, `mentor start`
 asks which subject to continue (or start a new one); `mentor subjects` lists them.
 Move between panes with **Ctrl+b** then an arrow key. Quit with **Ctrl+Q**.
@@ -65,17 +74,22 @@ Optional: put `mentor` on your PATH with `uv tool install --editable .`
 
 ### Using a real AI tutor (bring your own key)
 
-`mentor init` asks for Anthropic or OpenAI, stores the key in the **macOS
-Keychain** (or reads `ANTHROPIC_API_KEY` / `OPENAI_API_KEY`), and lets you
-pick a model from the provider's own list. Nothing is sent until you approve,
-and `/context` shows exactly what would be sent.
+`mentor init` offers Anthropic, OpenAI, or another service that works like
+OpenAI (for example DeepSeek: type its address, such as
+`https://api.deepseek.com`). It stores the key in the **macOS Keychain** (or
+reads `ANTHROPIC_API_KEY` / `OPENAI_API_KEY`) and lets you pick a model from
+the service's own list. Nothing is sent until you approve, and `/context`
+shows exactly what would be sent.
+
+The tutor pane and tmux bars use your terminal's own colours. If the accent
+colour is hard to read, set `CLI_MENTOR_THEME=light` (or `dark`).
 
 ## Everyday commands
 
 | Where | Command |
 |---|---|
 | Terminal | `mentor start`, `mentor resume`, `mentor stop`, `mentor sessions` |
-| Tutor pane | `/learn <topic>`, `/plan`, `/lesson`, `/hint`, `/explain <term>`, `/check`, `/observe pause` |
+| Tutor pane | `/learn <topic>`, `/plan`, `/lesson`, `/hint`, `/explain <term>`, `/check`, `/observe pause`, `/tour` |
 
 Full list: [docs/COMMANDS.md](docs/COMMANDS.md) or `/help`.
 

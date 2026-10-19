@@ -123,7 +123,10 @@ def test_render_plan_marks_progress(tmp_path: Path) -> None:
     plan = plans.activate(plans.create("x", PlanOutline.model_validate(fixture()["plan"])).id)
     plans.finish_step(plan.id, "s1")
     text = render_plan(plan.outline, plans.steps(plan.id), "s2")
-    assert "[done] 1. Hello, C++" in text and "[now] 2. Variables" in text and "[ ] 3." in text
+    lines = text.splitlines()
+    assert any(row.startswith("1. Hello, C++ —") and row.endswith("✓ done") for row in lines)
+    assert any(row.startswith("2. **Variables") and row.endswith("← you are here") for row in lines)
+    assert any(row.startswith("3. ") and not row.endswith(("done", "here")) for row in lines)
     assert "**Module 2: Thinking like a programmer**" in text
 
 

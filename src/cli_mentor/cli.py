@@ -61,14 +61,44 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     return 1 if any(r.status == "FAIL" for r in results) else 0
 
 
+def _interactive() -> bool:
+    return sys.stdin.isatty() and sys.stdout.isatty()
+
+
+def _full_screen_setup(paths: AppPaths, args: argparse.Namespace, *, then_start: bool) -> bool:
+    """Run the full-screen setup. Returns True if the learner wants to start a session now."""
+    from .ui.setup import run_setup
+
+    result = run_setup(
+        paths,
+        load_config(paths.config_file),
+        provider=getattr(args, "provider", None),
+        model=getattr(args, "model", None),
+        workspace=getattr(args, "workspace", None),
+        base_url=getattr(args, "base_url", None),
+        then_start=then_start,
+    )
+    if not result.saved:
+        print("Setup was not finished, so nothing was saved. Run `mentor init` when you are ready.")
+        print("(An API key you pasted is already in the Keychain. `mentor key delete <provider>` removes it.)")
+        return False
+    print(f"Saved {paths.config_file}.")
+    if not result.start:
+        print("Start any time with `mentor start`.")
+    return result.start
+
+
 def cmd_init(args: argparse.Namespace) -> int:
     from .onboarding import run_init
 
     paths = _paths()
-    config = load_config(paths.config_file)
+    if not args.yes and not args.plain and _interactive():
+        if _full_screen_setup(paths, args, then_start=False):
+            return cmd_start(argparse.Namespace(provider=None, subject=None, new=False, detach=False, nested=False))
+        return 0
     run_init(
         paths,
-        config,
+        load_config(paths.config_file),
         assume_yes=args.yes,
         provider=args.provider,
         model=args.model,
@@ -88,15 +118,25 @@ def _preflight(paths: AppPaths) -> bool:
     return True
 
 
+def _subject_rows(subjects: list[tuple[str, str]]) -> list[str]:
+    """Numbered, aligned rows: “ 1  C++ from the very basics   ━━━───────  3/40 steps · …”."""
+    width = min(36, max(len(title) for title, _ in subjects))
+    rows = []
+    for i, (title, details) in enumerate(subjects, start=1):
+        name = title if len(title) <= width else title[: width - 1] + "…"
+        rows.append(f"  {i:>2}  {name:<{width}}  {details}")
+    return rows
+
+
 def choose_subject(
     subjects: list[tuple[str, str]], ask: Callable[[str], str] = input, say: Callable[[str], None] = print
 ) -> int | None:
     """Ask which subject to continue. ``subjects`` is (title, details). Returns an index, or None for new."""
-    say("Your subjects:")
-    for i, (title, details) in enumerate(subjects, start=1):
-        say(f"  {i}. {title}  ({details})")
-    say("  n. Start a new subject")
-    answer = ask("Choose a number, or n for new [1]: ").strip().lower()
+    say("\nYour subjects\n")
+    for row in _subject_rows(subjects):
+        say(row)
+    say(f"  {'n':>2}  Start a new subject\n")
+    answer = ask("Choose a number, or n for a new subject [1]: ").strip().lower()
     if answer in ("n", "new"):
         return None
     if not answer:
@@ -107,10 +147,33 @@ def choose_subject(
     return None
 
 
+def _ago(ts: float | None, now: float | None = None) -> str:
+    """“3 days ago”, in words."""
+    if not ts:
+        return "never"
+    secs = (time.time() if now is None else now) - ts
+    if secs < 90:
+        return "just now"
+    if secs < 3600:
+        return f"{int(secs // 60)} minutes ago"
+    if secs < 86400:
+        hours = int(secs // 3600)
+        return "1 hour ago" if hours == 1 else f"{hours} hours ago"
+    days = int(secs // 86400)
+    if days == 1:
+        return "yesterday"
+    return f"{days} days ago" if days < 14 else "on " + time.strftime("%Y-%m-%d", time.localtime(ts))
+
+
+def _bar(done: int, total: int, width: int = 10) -> str:
+    filled = round(width * done / total) if total else 0
+    return "━" * filled + "─" * (width - filled)
+
+
 def _subject_details(plans: PlanStore, plan: PlanInfo) -> str:
     done, total = plans.progress(plan.id)
-    used = _fmt(plan.last_used or plan.created_at)
-    return f"{done}/{total} steps, {plan.status}, last studied {used}, folder {plan.folder_name}/"
+    state = "finished" if plan.status == "completed" else f"{done}/{total} steps"
+    return f"{_bar(done, total)}  {state} · studied {_ago(plan.last_used or plan.created_at)}"
 
 
 def _resume_subject(paths: AppPaths, config: Config, store: Store, plan: PlanInfo, args: argparse.Namespace) -> int:
@@ -145,6 +208,12 @@ def cmd_start(args: argparse.Namespace) -> int:
     if args.provider:
         os.environ["CLI_MENTOR_PROVIDER"] = args.provider
     config = _config(paths)
+    if not config.initialized and _interactive() and not os.environ.get("CLI_MENTOR_DEMO"):
+        print("First time here? Let's set up CLI Mentor first.")
+        start_now = _full_screen_setup(paths, argparse.Namespace(), then_start=True)
+        config = _config(paths)
+        if not start_now:
+            return 0 if config.initialized else 1
     if not _require_init(config) or not _preflight(paths):
         return 1
     store = open_store(paths.db_file)
@@ -257,9 +326,11 @@ def cmd_subjects(args: argparse.Namespace) -> int:
         print("No subjects yet. Run `mentor start` and tell the tutor what you want to learn.")
         return 0
     root = Path(_config(paths).workspace_root).expanduser()
-    for i, plan in enumerate(subjects, start=1):
-        print(f"{i}. {plan.title}  ({_subject_details(plans, plan)})")
-        print(f"   folder: {root / plan.folder_name}")
+    print("\nYour subjects\n")
+    rows = _subject_rows([(p.title, _subject_details(plans, p)) for p in subjects])
+    for row, plan in zip(rows, subjects, strict=True):
+        print(row)
+        print(f"      folder: {root / plan.folder_name}")
     print("\nContinue one with `mentor start` (it asks) or `mentor start --subject <number>`.")
     return 0
 
@@ -488,6 +559,7 @@ def build_parser() -> argparse.ArgumentParser:
     i.add_argument("--model")
     i.add_argument("--workspace")
     i.add_argument("--base-url", help="OpenAI-compatible endpoint (unverified unless tested)")
+    i.add_argument("--plain", action="store_true", help="plain questions instead of the full-screen setup")
     i.set_defaults(func=cmd_init)
 
     for name, func, text in (

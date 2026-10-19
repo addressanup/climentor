@@ -20,6 +20,7 @@ HELP = """\
 | Command | What it does |
 |---|---|
 | `/help` | Show this list |
+| `/tour` | A short walkthrough of the screen and how we work |
 | `/goal [text]` | Show or set your goal for this session |
 | `/learn <topic>` | Start a new learning plan, e.g. `/learn C++ from the basics` |
 | `/plan` | Show your plan and where you are |
@@ -95,6 +96,8 @@ async def dispatch(engine: Engine, line: str) -> Result:
 
     if cmd == "help":
         ui.note(HELP)
+    elif cmd == "tour":
+        engine.show_tour()
     elif cmd == "quit":
         return Result.QUIT
     elif cmd == "cancel":

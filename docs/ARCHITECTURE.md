@@ -60,7 +60,7 @@ repeated failure, exercise result), never per keystroke.
 | `providers/` | Provider interface, mock, Anthropic, OpenAI. |
 | `curriculum/` | Lesson schema, loader, trusted verifiers per track. |
 | `memory/` | Profile, evidence, skill states, review schedule, export, retention. |
-| `ui/` | Textual app, slash commands, approval dialog. |
+| `ui/` | Textual tutor pane (`app.py`), full-screen setup (`setup.py`), shared header widgets (`widgets.py`), terminal-colour theme (`theme.py`). |
 
 ## Synchronisation contract
 

@@ -114,7 +114,12 @@ def start(r: Rig, *extra: str) -> dict[str, str]:
     assert "ready in tmux session" in out
     panes = wait(lambda: (p := r.panes()) and len(p) == 3 and p, what="three panes")
     assert isinstance(panes, dict)
-    wait(lambda: "OBS: ON" in r.screen(panes["tutor"]), what="tutor status line")
+    wait(lambda: "● observing" in r.screen(panes["tutor"]), what="tutor status line")
+    session = r.tmux("list-sessions", "-F", "#{session_name}").split()[0]
+    wait(
+        lambda: "● observing" in r.tmux("show-options", "-v", "-t", session, "status-right"),
+        what="tmux status bar filled in by the tutor",
+    )
     return panes
 
 
@@ -148,7 +153,7 @@ def test_acceptance_learning_flow(rig: Rig) -> None:
     r = rig
     p = start(r)
     tutor, shell, editor = p["tutor"], p["shell"], p["editor"]
-    assert "MODEL: MOCK" in r.screen(tutor)
+    assert "offline mock" in r.screen(tutor)
 
     # 1-3. Welcome asks for a goal; the goal becomes a plan; the first step explains before the task.
     wd = to_first_step(r, tutor)
@@ -208,14 +213,14 @@ def test_acceptance_learning_flow(rig: Rig) -> None:
 
     # 11. Pause: nothing new is recorded; resume asks first and resnapshots.
     r.type(tutor, "/observe pause")
-    wait(lambda: "OBS: PAUSED" in r.screen(tutor), what="paused status")
+    wait(lambda: "‖ paused" in r.screen(tutor), what="paused status")
     r.type(shell, "echo PAUSED-SECRET-77")
     time.sleep(1.0)
     assert not r.db("SELECT 1 FROM events WHERE payload LIKE '%PAUSED-SECRET-77%'")
     r.type(tutor, "/observe resume")
     wait(lambda: "Resume observation?" in r.screen(tutor), what="resume consent")
     r.key(tutor, "y")
-    wait(lambda: "OBS: ON" in r.screen(tutor), what="observation back on")
+    wait(lambda: "● observing" in r.screen(tutor), what="observation back on")
     wait(
         lambda: r.db("SELECT 1 FROM events WHERE type='tmux.snapshot' AND payload LIKE '%\"resume\"%'"),
         what="resume snapshot",
@@ -253,7 +258,7 @@ def test_restart_resume_and_provider_failure(rig: Rig) -> None:
     p = start(r, "--provider", "anthropic")
     tutor = p["tutor"]
     wait(lambda: "No API key for anthropic" in r.screen(tutor), what="provider error note")
-    assert "MODEL: MOCK" in r.screen(tutor)
+    assert "offline mock" in r.screen(tutor)
     to_first_step(r, tutor)
     r.type(tutor, "/hint")
     wait(lambda: tutor_messages(r, "hint"), what="hint")

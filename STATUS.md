@@ -30,18 +30,24 @@ pytest-asyncio 1.4.0, mypy 2.4.0, ruff 0.17.0, pynvim 0.6.0.
 
 ## Tests actually run (latest)
 
-Command: `uv run pytest -m "not live"` → **165 passed, 2 deselected** (run 3
-times in a row with the same result after the last fix).
+Command: `uv run pytest -m "not live"` → **178 passed, 2 deselected** (after
+the UI, setup and walkthrough rework; the end-to-end tests were run again after
+the last fix and passed).
 
 | Group | Count | What they use |
 |---|---|---|
-| `tests/unit` | 138 | Pure logic, real SQLite, real IPC socket, real Python subprocesses, Textual Pilot, real SDK parsing via `httpx2.MockTransport` |
+| `tests/unit` | 159 | Pure logic, real SQLite, real IPC socket, real Python subprocesses, Textual Pilot (tutor pane and full-screen setup), real SDK parsing via `httpx2.MockTransport` |
 | `tests/integration` | 17 | Real tmux (private sockets), real zsh with the hooks, real headless Neovim with the plugin |
 | `tests/e2e` | 2 | The real `mentor` command, tmux, zsh, Neovim, and the Textual tutor pane, mock provider |
 | `tests/live` | 2 | **Not run** (skipped: needs your API key and model id) |
 
 Also run: `uv run ruff check .` (clean), `uv run ruff format --check .` (clean),
-`uv run mypy` (strict, clean, 66 source files).
+`uv run mypy` (strict, clean, 63 source files).
+
+UI checks run: screenshots of every tutor-pane state (first-run tour,
+permission dialog, plan, file approval, lesson) at 76 and 60 columns, dark and
+light colours, and of every setup page; plus a real isolated session in tmux
+(pane labels, status bar text, tutor pane captured with colours at 75×49).
 
 Manual checks run: `mentor init --yes`, `mentor doctor`, `mentor start
 --detach`, a full lesson typed into the panes (approval dialog, explanation,
@@ -77,6 +83,21 @@ tmux sockets.
   describes the program (panes, commands, curriculum) and each turn carries a trusted `<learner_progress>`
   section (first session, finished exercises, current stage, suggested next exercise, due reviews).
 - DeepSeek via `--base-url`: errors and the init prompt now name the server contacted.
+- The tmux status bar was always blank: tmux 3.7 rejects `set-option -t =name`; now `=name:`.
+  An end-to-end test checks the bar.
+- Status-bar updates less than 0.5 s apart were dropped for good; the last one is now sent a moment later.
+- While a question dialog was open, status updates looked for widgets in the dialog and failed.
+- In the setup screens, Esc in the "change the words" box also went back a page, and list keys
+  swallowed Enter; both fixed and covered by Pilot tests.
+
+## UI, setup and first walkthrough (current)
+- Tutor pane: terminal colours (light/dark guess, `CLI_MENTOR_THEME` override); header with subject,
+  "step N of M", learn → try → check, and a line that fills as steps get done; one-line status in words;
+  input hint that says what to type next; labelled replies ("Mentor · hint · deepseek-chat"); question
+  dialogs with letters, arrows or mouse.
+- `mentor init`: full-screen, five steps, shared save logic with `--plain`/`--yes`; offers to start.
+- First `mentor start` opens setup if needed; the first session begins with a short tour (`/tour` replays it).
+- tmux: bars in terminal colours, pane labels "Mentor", "Editor · nvim", "Shell · zsh".
 
 ## Learning flow (current)
 Welcome asks what to learn → the model proposes a plan → learner accepts or revises → steps are prepared

@@ -16,6 +16,10 @@ Test evidence is listed in `STATUS.md`.
 | Stale socket / runtime cleanup | Done | Only our own folders, only if nothing is listening |
 | No orphaned processes on shutdown | Done | e2e test checks with `pgrep` |
 | `mentor doctor` | Done | Installs nothing |
+| Full-screen setup (`mentor init`), plain fallback (`--plain`, `--yes`) | Done | Both save through one function; Pilot tests drive the full-screen path; offers to start the first session |
+| First `mentor start` opens setup when needed | Done | Only at an interactive terminal |
+| Subject picker with progress bar and "studied 2 days ago" | Done | |
+| tmux bars in your terminal's colours, pane labels (Mentor / Editor · nvim / Shell · zsh) | Done | Status bar shows subject, step, observation, model |
 | Offline demo (`mentor demo`) | Partial | Real tools and mock tutor; cannot design plans |
 | Linux support | Planned | Code avoids macOS-only calls where practical; CI job is experimental; not verified |
 | bash / fish shell hooks | Planned | zsh only |
@@ -37,7 +41,7 @@ Test evidence is listed in `STATUS.md`.
 | Sensitive / out-of-scope / terminal buffers skipped | Done | Checked in the plugin and again in the engine |
 | Versioned envelopes, per-source seq, gap/duplicate detection, epochs | Done | |
 | Bounded queues and backpressure | Done | Drop + mark incomplete + resync |
-| Sync status (current / catching-up / disconnected / paused / incomplete) | Done | Words in status line and tmux status bar |
+| Sync status (current / catching-up / disconnected / paused / incomplete) | Done | Problems are named in words in the status line and tmux status bar ("Neovim disconnected"); `/observe` shows every source |
 | Pause / resume semantics | Done | See `docs/PRIVACY.md` |
 | REPL input observation | Planned | Hooks cannot see input inside REPLs (stated to the model) |
 | Exact per-command output attribution | Partial | Output stream and command records come from different channels; labelled approximate |
@@ -55,6 +59,11 @@ Test evidence is listed in `STATUS.md`.
 | Validated model actions (`propose_memory`, `request_check`) | Done | Model inferences stay "proposed" |
 | Curriculum-only fallback when the provider fails | Done | |
 | Streaming, multiline input, cancel (Esc), approvals, readable code | Done | Textual app |
+| Tutor pane header: subject, step N of M, learn → try → check, a line that fills as steps get done | Done | Words and shapes (● ○ ✓), not only colour |
+| Input hint says what to type next (goal, yes/changes, prediction, /check) | Done | |
+| Uses the terminal's own colours (light or dark) | Done | Guessed from `COLORFGBG`; `CLI_MENTOR_THEME` overrides |
+| First-session tour (screen, keys, how we work), `/tour` to replay | Done | Not sent to the model |
+| Question dialogs: letter keys, or ↑ ↓ and Enter, or click | Done | |
 | Rich review sessions (spaced quizzes generated per skill) | Partial | `/review` lists due skills and asks the model for a question; no dedicated quiz bank |
 | Model-judged transfer answers as evidence | Planned | Answers are stored as unverified evidence only |
 

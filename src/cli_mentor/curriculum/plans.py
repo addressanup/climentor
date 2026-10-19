@@ -586,12 +586,13 @@ def render_plan(outline: PlanOutline, steps: list[StepInfo] | None = None, curre
         lines.append("**Assumptions:** " + "; ".join(outline.assumptions))
     n = 0
     for mi, module in enumerate(outline.modules, start=1):
-        lines.append(f"\n**Module {mi}: {module.title}**" + (f" — {module.summary}" if module.summary else ""))
+        lines.append(f"\n**Module {mi}: {module.title}**" + (f" — {module.summary}" if module.summary else "") + "\n")
         for step in module.steps:
             n += 1
             sid = f"s{n}"
-            mark = {"done": "[done]", "skipped": "[skipped]"}.get(
-                status.get(sid, ""), "[now]" if sid == current else "[ ]"
+            title = f"**{step.title}**" if sid == current else step.title
+            tail = {"done": " ✓ done", "skipped": " (skipped)"}.get(
+                status.get(sid, ""), " ← you are here" if sid == current else ""
             )
-            lines.append(f"- {mark} {n}. {step.title} — {step.objective}")
+            lines.append(f"{n}. {title} — {step.objective}{tail}")
     return "\n".join(lines)

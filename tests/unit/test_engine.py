@@ -53,6 +53,49 @@ async def test_welcome_asks_what_to_learn(ws: Path) -> None:
         await eng.stop()
 
 
+async def test_tour_only_on_the_first_session_and_on_request(ws: Path) -> None:
+    ui = HeadlessUi()
+    eng = make_engine(ws, ui=ui, provider=planning_mock())
+    await eng.start()
+    try:
+        tour = ui.last_turn("tour")
+        assert tour is not None and "**Your screen**" in tour.text and "Ctrl+b" in tour.text
+        assert next(iter(ui.turns.values())).trigger == "tour"  # before the permission question and the welcome
+        assert all("Your screen" not in m[1] for m in eng.sessions.recent_messages(eng.session_id))  # not for the model
+        info = ui.statuses[-1]
+        assert info.phase == "ask_goal" and info.subject is None and "new subject" in info.line()
+    finally:
+        await eng.stop()
+    ui2 = HeadlessUi()
+    second = make_engine(ws, ui=ui2, provider=planning_mock())
+    await second.start()
+    try:
+        assert ui2.last_turn("tour") is None  # a returning learner is not toured again
+        assert await commands.dispatch(second, "/tour") == commands.Result.HANDLED
+        assert ui2.last_turn("tour") is not None
+    finally:
+        await second.stop()
+
+
+async def test_status_tells_where_you_are_in_words(ws: Path) -> None:
+    ui = HeadlessUi()
+    eng = make_engine(ws, ui=ui, provider=planning_mock())
+    await eng.start()
+    try:
+        await eng.learner_message(GOAL)
+        info = eng.status_info()
+        assert info.phase == "plan_review" and info.subject == "C++ from the very basics" and info.steps == 3
+        assert info.step is None
+        await eng.learner_message("yes")
+        info = eng.status_info()
+        assert (info.step, info.steps, info.done, info.step_title) == (1, 3, 0, "Hello, C++")
+        assert info.step_stage == "explain"
+        assert info.line().startswith("C++ from the very basics · step 1/3 · ") and "offline mock" in info.line()
+        assert "OBS:" not in info.line() and "plan.p" not in info.line()  # no internal codes
+    finally:
+        await eng.stop()
+
+
 async def test_goal_becomes_plan_then_first_step(ws: Path) -> None:
     ui = HeadlessUi()
     mock = planning_mock()
@@ -521,7 +564,7 @@ async def test_commands_smoke(ws: Path) -> None:
         assert eng.session.goal == "learn C++" and eng.session.mode == "practice"
         assert await commands.dispatch(eng, "/quit") == commands.Result.QUIT
         text = "\n".join(n for _k, n in ui.notes)
-        assert "Unknown command" in text and "observed_workspace" in text and "[now] 1. Hello, C++" in text
+        assert "Unknown command" in text and "observed_workspace" in text and "1. **Hello, C++**" in text
         await commands.dispatch(eng, "/permissions revoke observe_terminal")
         assert not eng.permissions.check(Capability.OBSERVE_TERMINAL).allowed
     finally:
