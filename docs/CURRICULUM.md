@@ -1,88 +1,69 @@
-# Curriculum format and extensions
+# Learning plans
 
-## Principles
+There is no fixed curriculum. You say what you want to learn; the AI tutor
+designs a plan; trusted code checks your work.
 
-- A lesson file is **data only** (TOML). It never contains commands to run.
-- Each lesson names a **verifier id**. Verifiers are trusted Python classes in
-  `src/cli_mentor/curriculum/adapters/`. A downloaded lesson cannot add code.
-- The engine enforces the order: explain (words and symbols) → example →
-  prediction → task → check → transfer question.
-- A model's opinion is never a check result.
+## Flow
 
-## Lesson format, version 1
+1. **Welcome.** The first time (or when no plan is active) the tutor asks:
+   "What would you like to learn?"
+2. **Plan.** Your answer (for example "C++ from the very basics to the most
+   advanced features") goes to the model, which must call the `propose_plan`
+   tool: modules in order, each with small steps. The program shows it.
+3. **Review.** Reply **yes** (or `/plan accept`) to start, or say what to
+   change; the model revises it. Nothing is saved as your plan until you accept.
+4. **Steps, one at a time.** When you reach a step, the model prepares it
+   (`prepare_step`) using what the tutor knows about you so far. Then the
+   usual order applies: new words and symbols explained → example →
+   prediction → task → check → transfer question.
+5. **Next sessions.** "Welcome back. Next is step 7: … Type `/lesson` to
+   continue, or `/learn <topic>` to learn something else."
 
-File: `src/cli_mentor/curriculum/tracks/<track>/<NN>-<name>.toml`
+Commands: `/learn <topic>`, `/plan`, `/plan accept`, `/plan skip`,
+`/plan list`, `/plan switch <id>`, `/lesson`, `/check [answer]`.
 
-| Field | Meaning |
+## What the model may send
+
+Both tools are validated with Pydantic before anything happens
+(`src/cli_mentor/curriculum/plans.py`).
+
+- **Plan outline:** title, goal summary, assumptions, 1–20 modules, 1–12 steps
+  each, at most 150 steps.
+- **Step details:** skills, vocabulary, symbol-by-symbol syntax, example,
+  prediction (+ answer), instructions, up to 6 starter files (relative paths
+  only, no `..`), 1–3 hints, up to 6 checks, solution, transfer questions.
+
+Starter files are written into the practice folder only after you approve.
+
+## Check menu (fixed; run by trusted code)
+
+| Check | What trusted code does |
 |---|---|
-| `format_version` | Always `1` for this format |
-| `id`, `version` | e.g. `cli.pipelines`, `1`. Bump `version` when the task changes. |
-| `title`, `track`, `order` | Display and ordering |
-| `skills` | Skill tags this lesson gives evidence for (e.g. `cli.pipes.pipe`) |
-| `prerequisites` | Lesson ids that should come first |
-| `objectives` | What the learner will be able to do |
-| `[[vocabulary]]` | `term` + `meaning`, in plain words |
-| `[[syntax]]` | `example` + `parts` (`token`, `meaning`) + optional `note`: symbol-by-symbol reading |
-| `demonstration` | Markdown example shown before the task |
-| `prediction`, `prediction_answer` | Question asked before the task, and the expected answer |
-| `instructions` | The task. Only shown after the explanation and prediction. |
-| `workdir` | Relative folder inside the practice folder |
-| `[[setup]]` | Files to create: `path`, `content` or a trusted `generator` + `generator_params` |
-| `[[hints]]` | `level` 1–3, smallest first |
-| `solution` | Shown only on `/solution` (recorded as full help) |
-| `verifier`, `[verifier_params]` | Trusted checker id and its data parameters |
-| `rubric` | What the checker looks for (shown to the model) |
-| `transfer` | Questions that apply the idea somewhere new |
-| `cleanup` | `keep` or `remove_created` |
-| `risk` | `read_only`, `writes_workspace`, or `runs_learner_code` |
-| `telemetry` | `none` or `nvim_normal_commands` (opt-in command counts) |
+| `file_exists` | The file exists in the step folder |
+| `file_contains` | The file contains a piece of text (plain text, no regex) |
+| `command_succeeded` | A command starting with that program (e.g. `c++`, `make`) was observed finishing with exit 0 |
+| `program_output` | Compiles C (`cc -std=c17`) or C++ (`c++ -std=c++20`), or runs Python, then compares the output. Flags are fixed in code. Needs your "run my code" approval. Host execution with limits, **not a sandbox**. |
+| `learner_answer` | Compares your `/check <answer>` with accepted answers (ignores case and punctuation) |
+| `editor_commands` | Opt-in Neovim command counts; only affects "technique verified/unverified" |
 
-Setup paths must be relative and cannot contain `..`. Setup never overwrites
-existing files (except `/lesson reset`, after asking). Cleanup only removes
-files the setup created that the learner has not changed.
+The model chooses which checks to use and their data. It cannot add commands,
+compiler flags, or new check types. The checker id is `plan.generic.v1`
+(`src/cli_mentor/curriculum/adapters/generic.py`).
 
-## Writing a verifier
+**Steps without an automatic check** are reviewed by the tutor (`assess_step`
+tool: complete / needs work). That review is recorded as **unverified** and
+does not change skill states. `/plan skip` records a step as skipped.
 
-```python
-from typing import ClassVar
-from ..verify import Check, VerificationResult, VerifyContext, register
+## Offline (mock) tutor
 
+The mock cannot design plans. It says a real model is needed. For tests and
+demos it can replay a recorded plan: set `CLI_MENTOR_MOCK_FIXTURE` to a JSON
+file like `tests/fixtures/cpp_plan.json`.
 
-@register
-class MyVerifier:
-    id: ClassVar[str] = "track.thing.v1"
-    executes_learner_code: ClassVar[bool] = False  # True needs the "run learner code" permission
+## Limits and ideas for later
 
-    async def verify(self, ctx: VerifyContext) -> VerificationResult:
-        text = ctx.read("result.txt")  # scope-checked, redacted read
-        ok = text is not None and text.strip() == "42"
-        return VerificationResult(self.id, ok, [Check("result.txt says 42", ok, "...", "filesystem")])
-```
-
-Available evidence in `VerifyContext`: files (through the scope checker),
-observed shell records since the attempt started, Neovim buffer mirrors, mode
-history and opt-in command counts, the learner's typed answer, and (only with
-permission) a `HostRunner` that runs Python with limits. Report technique as
-`verified` only when there is evidence for *how* the work was done.
-
-## Built-in tracks (implemented)
-
-| Track | Exercises |
-|---|---|
-| CLI fundamentals | `cli.navigation`, `cli.files`, `cli.pipelines` |
-| Neovim fundamentals | `nvim.modes`, `nvim.motions`, `nvim.operators` |
-| Python fundamentals | `python.expressions`, `python.types`, `python.functions` |
-
-## Extension routes (designed for, NOT implemented)
-
-These are places the format and verifier interface are meant to grow. None of
-them ships as a curriculum today.
-
-| Area | How it would plug in | Notes |
-|---|---|---|
-| Git | Verifier reads the repo with `git` plumbing commands run by trusted code in the exercise folder (read-only: `git log --format`, `git status --porcelain`). | Needs a `run_checks` adapter that runs fixed git commands; never commands from lesson files. |
-| PostgreSQL | A disposable database per exercise (e.g. `initdb` in the exercise folder) and verifiers that run fixed SQL queries. | Needs the `mutate_database` capability, which is deliberately disabled in this version. |
-| Debugging and testing | Verifiers that run the learner's tests with `HostRunner` and inspect results; Neovim diagnostics as evidence. | Host execution, so keep it behind the permission. |
-| Other languages | New runner per language (same limits pattern as `HostRunner`). | Tool availability checks belong in `mentor doctor`. |
-| Systems, networking, security, infrastructure | Lessons that read observed command records and outputs; containers or VMs for anything that needs isolation. | Do not claim isolation unless a real sandbox is used. |
-| Advanced projects | Project-mentor mode plus rubric-based reviews, profiling, concurrency, failure diagnosis, design trade-offs. | Needs richer evidence than pass/fail; out of scope for v1. |
+- Plan quality depends on the model. Plans are a suggestion you can change.
+- Only C, C++ and Python programs can be run by checks today. Other languages
+  need a new runner in `curriculum/runner.py` (same limit pattern).
+- Databases (PostgreSQL), Git internals, and infrastructure exercises need new
+  trusted check types; `mutate_database` stays disabled until then.

@@ -7,10 +7,11 @@ from pathlib import Path
 
 import pytest
 
-from cli_mentor.providers.mock import MockBehaviour, MockProvider
+from cli_mentor.providers.mock import MockProvider
 from cli_mentor.tutor.engine import Engine
 from cli_mentor.ui.app import ChoiceScreen, Entry, MentorApp
 from tests.engine_helpers import make_engine
+from tests.plan_helpers import planning_mock
 
 
 @pytest.fixture
@@ -43,7 +44,7 @@ async def test_ui_starts_streams_and_shows_status(ws: Path) -> None:
         await pilot.pause(0.3)
         status = str(app.query_one("#status").render())
         assert "OBS: ON" in status and "MODEL: MOCK" in status and "MODE: guided" in status
-        assert "Welcome to CLI Mentor" in texts(app)
+        assert "What would you like to learn?" in texts(app)
         await pilot.click("#input")
         for ch in "hello tutor":
             await pilot.press(ch if ch != " " else "space")
@@ -51,7 +52,7 @@ async def test_ui_starts_streams_and_shows_status(ws: Path) -> None:
         await pilot.pause(0.5)
         body = texts(app)
         assert "You" in body and "hello tutor" in body
-        assert "MOCK TUTOR" in body and "CLI Mentor tutor" in body
+        assert "needs a real AI model" in body  # the plain mock cannot design a plan
         assert app.query_one("#input").text == ""  # type: ignore[attr-defined]
 
 
@@ -69,7 +70,7 @@ async def test_ui_multiline_and_slash_commands(ws: Path) -> None:
 
 
 async def test_ui_lesson_approval_and_cancel(ws: Path) -> None:
-    slow = MockProvider()
+    slow = planning_mock()
     engines: list[Engine] = []
 
     def factory(ui: MentorApp) -> Engine:
@@ -81,13 +82,17 @@ async def test_ui_lesson_approval_and_cancel(ws: Path) -> None:
     async with app.run_test(size=(100, 40)) as pilot:
         await answer_modal(pilot, "s")
         await pilot.pause(0.2)
-        app.query_one("#input").text = "/lesson start cli.files"  # type: ignore[attr-defined]
+        app.query_one("#input").text = "I want to learn C++"  # type: ignore[attr-defined]
         await pilot.press("enter")
-        await answer_modal(pilot, "y")  # create exercise files: yes, this time
+        await pilot.pause(0.4)
+        assert "Module 1: First programs" in texts(app)
+        app.query_one("#input").text = "yes"  # type: ignore[attr-defined]
+        await pilot.press("enter")
+        await answer_modal(pilot, "y")  # create the step's files: yes, this time
         await pilot.pause(0.5)
-        assert (ws / "cli/02-files/desk/draft.txt").exists()
+        assert list(ws.glob("plans/*/s1-*/hello.cpp"))
         assert "New words" in texts(app)
-        slow.behaviour = MockBehaviour(chunk_delay=0.05)
+        slow.behaviour.chunk_delay = 0.05
         app.query_one("#input").text = "/explain"  # type: ignore[attr-defined]
         await pilot.press("enter")
         await pilot.pause(0.3)

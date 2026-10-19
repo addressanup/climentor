@@ -104,3 +104,23 @@ Checks that run learner code never run automatically.
 A shell started before the tutor listens skips its "session started" message
 without using a sequence number. After a real gap, shell status returns to
 `current` once events flow again, while the "history incomplete" note stays.
+
+## 2026-10-19 — Learner-chosen goals and AI-designed plans replace the fixed curriculum
+Learner request. The welcome asks what to learn; the model proposes a linear
+plan (`propose_plan`), the learner accepts or revises it, and each step is
+prepared when reached (`prepare_step`) so it can use memory and evidence.
+Built-in lessons were removed completely (learner choice), so the offline mock
+cannot teach unless given a recorded plan (`CLI_MENTOR_MOCK_FIXTURE`).
+
+## 2026-10-19 — Plan steps are checked from a fixed menu
+"Real checks + AI review" (learner choice). The model picks checks and data
+from six types; trusted code runs them. Compiler and flags are fixed in code
+(`c++ -std=c++20`, `cc -std=c17`). Steps without automatic checks get an AI
+review recorded as unverified; skill states only change from trusted checks.
+Risk (whether code runs) is derived by trusted code from the checks, not taken
+from the model.
+
+## 2026-10-19 — Plans are proposed until accepted
+A model-made plan is stored as `proposed` and becomes `active` only after the
+learner replies yes. One active plan at a time; others are archived and can be
+switched back with `/plan switch`.

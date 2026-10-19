@@ -8,8 +8,11 @@ it "MOCK TUTOR" so nobody mistakes it for a real model.
 from __future__ import annotations
 
 import asyncio
+import json
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
 
 from .base import (
     Done,
@@ -33,6 +36,15 @@ class MockBehaviour:
     fail_with: ProviderError | None = None
     fail_after_chunks: int | None = None
     tool_calls: list[ToolCall] = field(default_factory=list)
+    # Recorded planning answers (tests and offline demos). Without them the mock cannot plan.
+    plan: dict[str, Any] | None = None
+    steps: list[dict[str, Any]] = field(default_factory=list)
+    assessment: dict[str, Any] | None = None
+
+    @classmethod
+    def from_fixture(cls, path: str | Path) -> MockBehaviour:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+        return cls(plan=data.get("plan"), steps=list(data.get("steps", [])), assessment=data.get("assessment"))
 
 
 def compose(meta: TurnMeta | None) -> str:
@@ -92,27 +104,33 @@ def compose(meta: TurnMeta | None) -> str:
     else:
         parts.append(
             "Hi, I am your CLI Mentor tutor. (This is the offline mock, so I cannot understand free text; "
-            "I can still guide you through the lessons.)"
+            "I can still guide you through your plan.)"
         )
-        next_title = meta.extra.get("next_lesson_title")
-        if meta.exercise_title and meta.stage != "verified":
+        if meta.extra.get("phase") == "ask_goal":
+            parts.append("Tell me what you would like to learn and I will propose a plan.")
+        elif meta.exercise_title and meta.stage != "verified":
             step = {
                 "explain": "answer the prediction question above, or type `/lesson skip`",
                 "attempt": "do the task in the shell or Neovim, then type `/check` (or `/hint` for help)",
             }.get(meta.stage or "", "type `/lesson` to continue")
             parts.append(f"You are on **{meta.exercise_title}**. Next: {step}.")
-        elif next_title:
-            intro = "Your first exercise" if not meta.extra.get("completed_count") else "Next up"
-            parts.append(f"{intro}: **{next_title}**. Type `/lesson` to start it.")
+        elif meta.extra.get("next_step"):
+            parts.append(
+                f"In **{meta.extra.get('plan_title')}**, next is {meta.extra['next_step']}. Type `/lesson` to start it."
+            )
         if meta.last_command is not None:
             parts.append(f"Your last command was `{meta.last_command}` (exit {meta.last_exit}).")
-        parts.append("Useful commands: `/lesson`, `/hint`, `/explain <term>`, `/check`, `/progress`, `/help`.")
+        parts.append("Useful commands: `/lesson`, `/plan`, `/hint`, `/explain <term>`, `/check`, `/help`.")
     return "\n\n".join(parts)
 
 
 class MockProvider:
     name = "mock"
     makes_network_calls = False
+
+    @property
+    def can_plan(self) -> bool:
+        return self.behaviour.plan is not None
 
     def __init__(self, model: str = "mock-tutor", behaviour: MockBehaviour | None = None) -> None:
         self.model = model
@@ -125,6 +143,15 @@ class MockProvider:
         b = self.behaviour
         if b.fail_with is not None and b.fail_after_chunks is None:
             raise b.fail_with
+        planned = self._planning(request.meta)
+        if planned is not None:
+            text, call = planned
+            yield TextDelta(text)
+            if call is not None:
+                yield call
+            yield Usage(estimate_request_tokens(request), estimate_tokens(text), estimated=True)
+            yield Done("tool_use")
+            return
         text = compose(request.meta)
         words = text.split(" ")
         try:
@@ -141,6 +168,18 @@ class MockProvider:
             yield call
         yield Usage(estimate_request_tokens(request), estimate_tokens(text), estimated=True)
         yield Done("end_turn")
+
+    def _planning(self, meta: TurnMeta | None) -> tuple[str, ToolCall | None] | None:
+        b = self.behaviour
+        trigger = meta.trigger if meta else ""
+        if trigger in ("plan", "plan_revise") and b.plan is not None:
+            return "Here is a plan for that (recorded mock answer).", ToolCall("propose_plan", b.plan)
+        if trigger == "prepare_step" and b.steps:
+            index = max(0, int((meta.extra if meta else {}).get("step_position", 1)) - 1) % len(b.steps)
+            return "", ToolCall("prepare_step", b.steps[index])
+        if trigger == "review_step" and b.assessment is not None:
+            return str(b.assessment.get("feedback", "Reviewed.")), ToolCall("assess_step", b.assessment)
+        return None
 
     async def list_models(self) -> list[str]:
         return [self.model]

@@ -18,7 +18,7 @@ from the project folder.
 | `mentor export [--out FILE] [--include-events] [--no-transcripts]` | Exports your data as JSON. No API keys. |
 | `mentor delete-session SESSION [--with-evidence] [--yes]` | Deletes one session's observations, transcript, model suggestions, usage (and evidence if asked), then compacts the database. |
 | `mentor key set\|delete\|status anthropic\|openai` | Manages the API key in the macOS Keychain. The value is never printed. |
-| `mentor demo [--detach] [--nested]` | Offline demo: real tmux, Neovim and zsh; the MOCK tutor; separate demo data. |
+| `mentor demo [--detach] [--nested]` | Offline demo: real tmux, Neovim and zsh; the MOCK tutor; separate demo data. The mock cannot design learning plans. |
 | `mentor --version` | Prints the version. |
 
 `SESSION` can be a full id or a unique prefix (see `mentor sessions`).
@@ -32,16 +32,19 @@ a message to the tutor. The same table is shown by `/help`.
 |---|---|
 | `/help` | Show this list |
 | `/goal [text]` | Show or set your goal for this session |
-| `/lesson` | Start or continue the next exercise |
-| `/lesson list` | List all exercises and your status |
-| `/lesson start <id>` | Start one exercise, e.g. `/lesson start cli.pipelines` |
+| `/learn <topic>` | Start a new learning plan, e.g. `/learn C++ from the basics` |
+| `/plan` | Show your plan and where you are |
+| `/plan accept` | Accept the proposed plan (same as replying “yes”) |
+| `/plan skip` | Skip the current step |
+| `/plan list` / `switch <id>` | See all your plans / switch to another one |
+| `/lesson` | Start or continue the current step |
 | `/lesson skip` | Skip the prediction question and show the task |
-| `/lesson reset` | Recreate the exercise's starting files (asks first) |
-| `/lesson cleanup` | Remove unchanged files the exercise created (asks first) |
+| `/lesson reset` | Recreate the step's starting files (asks first) |
+| `/lesson cleanup` | Remove unchanged files the step created (asks first) |
 | `/hint` | Next, slightly stronger hint (recorded as help) |
 | `/solution` | Show the full solution (asks; recorded as full help) |
 | `/explain [term]` | Explain a word or symbol from the current lesson |
-| `/check [answer]` | Run the trusted checker (some exercises need an answer) |
+| `/check [answer]` | Check the current step (some steps need an answer) |
 | `/review` | Skills due for review, and a review question |
 | `/progress` | Your skill states and the evidence behind them |
 | `/profile` | Your profile, with where each fact came from |

@@ -23,8 +23,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
-from ..curriculum.loader import TRACK_TITLES, lessons_by_track, next_lesson
 from ..curriculum.model import Lesson
+from ..curriculum.plans import PlanStore
 from ..curriculum.verify import VerificationResult
 from ..events.schema import SourceKind
 from ..memory.evidence import EvidenceStore
@@ -106,6 +106,8 @@ class TurnInputs:
     observation_allowed: bool = True
     exercise_dir: Path | None = None
     goal: str | None = None
+    phase: str = "learning"
+    plan_id: str | None = None
     extra_trusted: list[str] = field(default_factory=list)
 
 
@@ -119,6 +121,7 @@ class ContextAssembler:
         evidence: EvidenceStore,
         sessions: Sessions,
         clock: Callable[[], float] = time.time,
+        plans: PlanStore | None = None,
     ) -> None:
         self.state = state
         self.scope = scope
@@ -127,49 +130,64 @@ class ContextAssembler:
         self.evidence = evidence
         self.sessions = sessions
         self.clock = clock
+        self.plans = plans
 
     # ------------------------------------------------------------ sections
-    def _program(self) -> str:
-        tracks = {track: [(les.id, les.title) for les in items] for track, items in lessons_by_track().items()}
-        return program_overview(tracks, TRACK_TITLES)
-
     def _progress(self, t: TurnInputs) -> str:
-        completed = self.evidence.completed_exercises()
         sessions = len(self.sessions.list_sessions(500))
         lines = [
             "This is the learner's first CLI Mentor session."
-            if sessions <= 1 and not completed
+            if sessions <= 1
             else f"They have used CLI Mentor before (session {sessions}).",
             f"Teaching mode: {t.mode}. Observation: {'on' if t.observation_allowed else 'off or paused'}.",
-            "Finished exercises: " + (", ".join(sorted(completed)) if completed else "none yet"),
         ]
         if t.goal:
             lines.append(f"Session goal: {t.goal}")
-        stage_next = {
-            "explain": "they should answer the prediction question (or type /lesson skip)",
-            "attempt": "they are doing the task; /check when done, /hint for help",
-            "verified": "they finished it; suggest the next exercise",
-        }
-        if t.lesson is not None:
+        plan = self.plans.get(t.plan_id) if self.plans and t.plan_id else None
+        if t.phase == "ask_goal" or plan is None:
             lines.append(
-                f"Current exercise: {t.lesson.id}: {t.lesson.title} (stage: {t.stage}); "
-                f"{stage_next.get(t.stage or '', 'continue it with /lesson')}."
+                "No accepted learning plan yet. The tutor asked what they want to learn; their answer starts a plan."
             )
-        nxt = next_lesson(completed)
-        if t.lesson is None or t.stage == "verified":
-            if nxt is not None:
-                lines.append(f"Suggested next exercise: {nxt.id}: {nxt.title} (they start it by typing /lesson).")
-            else:
-                lines.append("Every built-in exercise is finished; suggest /review or project mode.")
+        elif t.phase == "plan_review" or plan.status == "proposed":
+            lines.append(
+                f"A plan “{plan.title}” is proposed and waits for the learner to accept it (reply yes) "
+                "or ask for changes."
+            )
+        else:
+            assert self.plans is not None
+            done, total = self.plans.progress(plan.id)
+            lines.append(
+                f"Learning plan: “{plan.title}” (their goal, in their words: “{plan.goal[:200]}”). "
+                f"Progress: {done} of {total} steps done. Status: {plan.status}."
+            )
+            steps = self.plans.steps(plan.id)
+            current = next((st for st in steps if st.step_id == plan.current_step), None)
+            if current is not None:
+                stage_next = {
+                    "explain": "they should answer the prediction question (or type /lesson skip)",
+                    "attempt": "they are doing the task; /check when done, /hint for help",
+                    "verified": "finished; the next step starts with /lesson",
+                }
+                started = t.lesson is not None and t.lesson.order == current.position
+                lines.append(
+                    f"Current step {current.position} of {total} (module “{current.module}”): {current.title}: "
+                    f"{current.objective}. "
+                    + (stage_next.get(t.stage or "", "") if started else "Not started yet: they start it with /lesson.")
+                )
+                upcoming = [st.title for st in steps if st.position > current.position][:3]
+                if upcoming:
+                    lines.append("Coming next: " + "; ".join(upcoming))
+            elif plan.status == "completed":
+                lines.append("Every step is finished. Suggest /review or a new goal with /learn <topic>.")
         due = self.evidence.due_reviews()
         if due:
-            lines.append("Skills due for review (type /review): " + ", ".join(s.skill for s in due[:6]))
+            lines.append("Skills due for review (type /review): " + ", ".join(sk.skill for sk in due[:6]))
         return "\n".join(lines)
 
     def _exercise(self, t: TurnInputs) -> str:
         les = t.lesson
         if les is None:
-            return "No exercise is active." + (f"\nSession goal: {t.goal}" if t.goal else "")
+            return "\n".join(["No exercise is active.", *t.extra_trusted])
         lines = [
             f"Exercise: {les.title} (id {les.id} v{les.version}), stage: {t.stage}",
             f"Track: {les.track}",
@@ -290,7 +308,7 @@ class ContextAssembler:
     # ------------------------------------------------------------ build
     def build(self, t: TurnInputs, *, max_context_tokens: int, max_output_tokens: int) -> AssembledContext:
         profile_lines = [f.value for f in self.profile.confirmed()]
-        system = system_prompt(t.mode, profile_lines, self._program())
+        system = system_prompt(t.mode, profile_lines, program_overview())
         files = (
             [os.path.realpath(t.exercise_dir / s.path) for s in t.lesson.setup] if t.lesson and t.exercise_dir else []
         )

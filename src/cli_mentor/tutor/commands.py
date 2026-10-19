@@ -6,7 +6,6 @@ import shlex
 import time
 from enum import Enum
 
-from ..curriculum.loader import TRACK_TITLES, find_lesson, lessons_by_track
 from ..memory.evidence import ASSISTANCE_LABELS
 from ..memory.privacy_ops import delete_observations
 from ..memory.profile import INTERVENTION_CHOICES, INTERVENTION_KEY
@@ -22,12 +21,15 @@ HELP = """\
 |---|---|
 | `/help` | Show this list |
 | `/goal [text]` | Show or set your goal for this session |
-| `/lesson` | Start or continue the next exercise |
-| `/lesson list` | List all exercises and your status |
-| `/lesson start <id>` | Start one exercise, e.g. `/lesson start cli.pipelines` |
+| `/learn <topic>` | Start a new learning plan, e.g. `/learn C++ from the basics` |
+| `/plan` | Show your plan and where you are |
+| `/plan accept` | Accept the proposed plan (same as replying “yes”) |
+| `/plan skip` | Skip the current step |
+| `/plan list` / `switch <id>` | See all your plans / switch to another one |
+| `/lesson` | Start or continue the current step |
 | `/lesson skip` | Skip the prediction question and show the task |
-| `/lesson reset` | Recreate the exercise's starting files (asks first) |
-| `/lesson cleanup` | Remove unchanged files the exercise created (asks first) |
+| `/lesson reset` | Recreate the step's starting files (asks first) |
+| `/lesson cleanup` | Remove unchanged files the step created (asks first) |
 | `/hint` | Next, slightly stronger hint (recorded as help) |
 | `/solution` | Show the full solution (asks; recorded as full help) |
 | `/explain [term]` | Explain a word or symbol from the current lesson |
@@ -108,6 +110,10 @@ async def dispatch(engine: Engine, line: str) -> Result:
             ui.note(f"Goal: {engine.session.goal or 'not set. Use /goal <text>.'}")
     elif cmd == "lesson":
         await _lesson(engine, args)
+    elif cmd == "plan":
+        await _plan(engine, args, rest)
+    elif cmd == "learn":
+        await engine.new_goal(rest)
     elif cmd == "hint":
         await engine.hint()
     elif cmd == "solution":
@@ -143,44 +149,40 @@ async def dispatch(engine: Engine, line: str) -> Result:
 
 async def _lesson(engine: Engine, args: list[str]) -> None:
     sub = args[0].lower() if args else ""
-    if sub == "list":
-        done = engine.evidence.completed_exercises()
-        current = engine.session.active_exercise
-        lines = []
-        for track, items in lessons_by_track().items():
-            lines.append(f"**{TRACK_TITLES.get(track, track)}**")
-            for les in items:
-                mark = "[done]" if les.id in done else ("[now]" if les.id == current else "[ ]")
-                lines.append(f"- {mark} `{les.id}` — {les.title} (~{les.estimated_minutes} min)")
-        engine.ui.note("\n".join(lines))
-    elif sub == "start" and len(args) > 1:
-        await engine.start_lesson(args[1])
-    elif sub == "skip":
+    if sub == "skip":
         await engine.skip_prediction()
     elif sub == "reset":
-        if engine.session.active_exercise:
-            await engine.start_lesson(engine.session.active_exercise, reset=True)
-        else:
-            engine.ui.note("No exercise is active.")
+        await engine.start_step(reset=True)
     elif sub == "cleanup":
         await engine.cleanup_lesson()
-    elif sub and find_lesson(sub):
-        await engine.start_lesson(sub)
     elif sub:
-        engine.ui.note(
-            "Usage: `/lesson`, `/lesson list`, `/lesson start <id>`, `/lesson skip`, `/lesson reset`, `/lesson cleanup`.",
-            "warn",
-        )
+        engine.ui.note("Usage: `/lesson`, `/lesson skip`, `/lesson reset`, `/lesson cleanup`.", "warn")
     else:
-        lesson = engine.lesson()
-        if lesson is not None and engine.session.exercise_stage != "verified":
-            engine.ui.note(f"Continuing “{lesson.title}” (stage: {engine.session.exercise_stage}).")
-            if engine.session.exercise_stage == "explain":
-                await engine.run_turn(Trigger.LESSON_INTRO)
-            else:
-                engine.ui.note(f"**Your task:**\n\n{lesson.instructions.strip()}")
-        else:
-            await engine.start_lesson(None)
+        await engine.start_step()
+
+
+async def _plan(engine: Engine, args: list[str], rest: str) -> None:
+    sub = args[0].lower() if args else ""
+    if sub == "accept":
+        await engine.accept_plan()
+    elif sub == "skip":
+        await engine.skip_step()
+    elif sub == "list":
+        plans = engine.plans.list_plans()
+        if not plans:
+            engine.ui.note("No plans yet. Tell me what you want to learn, or type `/learn <topic>`.")
+            return
+        lines = []
+        for pl in plans:
+            done, total = engine.plans.progress(pl.id)
+            lines.append(f"- `{pl.id[:8]}` **{pl.title}** — {pl.status}, {done}/{total} steps")
+        engine.ui.note("\n".join(lines) + "\n\nSwitch with `/plan switch <id>`.")
+    elif sub == "switch" and len(args) > 1:
+        await engine.switch_plan(args[1])
+    elif sub:
+        engine.ui.note("Usage: `/plan`, `/plan accept`, `/plan skip`, `/plan list`, `/plan switch <id>`.", "warn")
+    else:
+        engine.ui.note(engine.plan_markdown())
 
 
 async def _review(engine: Engine) -> None:

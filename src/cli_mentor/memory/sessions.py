@@ -20,6 +20,8 @@ class SessionState:
     hint_level: int = 0
     summary: str | None = None
     open_questions: list[str] = field(default_factory=list)
+    plan_id: str | None = None
+    phase: str = "ask_goal"  # ask_goal | plan_review | learning
 
 
 @dataclass(frozen=True)
@@ -113,15 +115,18 @@ class Sessions:
             row["hint_level"],
             row["summary"],
             json.loads(row["open_questions"] or "[]"),
+            row["plan_id"],
+            row["phase"] or "ask_goal",
         )
 
     def save_state(self, st: SessionState) -> None:
         self.store.conn.execute(
             "INSERT INTO session_state(session_id, goal, mode, active_exercise, exercise_stage, hint_level, summary, "
-            "open_questions, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(session_id) DO UPDATE SET "
+            "open_questions, plan_id, phase, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(session_id) DO UPDATE SET "
             "goal = excluded.goal, mode = excluded.mode, active_exercise = excluded.active_exercise, "
             "exercise_stage = excluded.exercise_stage, hint_level = excluded.hint_level, summary = excluded.summary, "
-            "open_questions = excluded.open_questions, updated_at = excluded.updated_at",
+            "open_questions = excluded.open_questions, plan_id = excluded.plan_id, phase = excluded.phase, "
+            "updated_at = excluded.updated_at",
             (
                 st.session_id,
                 st.goal,
@@ -131,6 +136,8 @@ class Sessions:
                 st.hint_level,
                 st.summary,
                 json.dumps(st.open_questions),
+                st.plan_id,
+                st.phase,
                 time.time(),
             ),
         )

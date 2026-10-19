@@ -19,6 +19,7 @@ import os
 import shutil
 import signal
 import sys
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -77,26 +78,29 @@ class HostRunner:
             "PYTHONIOENCODING": "utf-8",
         }
 
-    async def run_python(
-        self, args: list[str], cwd: Path, stdin: str | None = None, *, isolated: bool = True
+    async def run_argv(
+        self,
+        argv: list[str],
+        cwd: Path,
+        stdin: str | None = None,
+        *,
+        timeout: float | None = None,
+        cpu_seconds: int | None = None,
+        max_open_files: int | None = None,
     ) -> RunResult:
-        # -I: fully isolated (script folder not on sys.path). -E -s: ignore PYTHON*
-        # variables and user site-packages, but let a test file import its neighbour.
-        flags = ["-I"] if isolated else ["-E", "-s"]
-        argv = [
+        """Run a program with resource limits, a clean environment, and a timeout."""
+        launcher = [
             sys.executable,
             "-I",
             "-c",
             _LIMITS_LAUNCHER,
-            str(self.cpu_seconds),
+            str(cpu_seconds or self.cpu_seconds),
             str(self.max_file_bytes),
-            str(self.max_open_files),
-            self.python,
-            *flags,
-            *args,
+            str(max_open_files or self.max_open_files),
+            *argv,
         ]
         proc = await asyncio.create_subprocess_exec(
-            *argv,
+            *launcher,
             cwd=str(cwd),
             env=self.environment(cwd),
             stdin=asyncio.subprocess.PIPE,
@@ -107,7 +111,7 @@ class HostRunner:
         timed_out = False
         try:
             out, err = await asyncio.wait_for(
-                proc.communicate(stdin.encode() if stdin is not None else b""), self.timeout
+                proc.communicate(stdin.encode() if stdin is not None else b""), timeout or self.timeout
             )
         except TimeoutError:
             timed_out = True
@@ -124,3 +128,39 @@ class HostRunner:
             stderr=err[:MAX_OUTPUT].decode("utf-8", "replace"),
             timed_out=timed_out,
         )
+
+    async def run_python(
+        self, args: list[str], cwd: Path, stdin: str | None = None, *, isolated: bool = True
+    ) -> RunResult:
+        # -I: fully isolated (script folder not on sys.path). -E -s: ignore PYTHON*
+        # variables and user site-packages, but let a script import its neighbour.
+        flags = ["-I"] if isolated else ["-E", "-s"]
+        return await self.run_argv([self.python, *flags, *args], cwd, stdin)
+
+    async def run_program(self, language: str, source: str, cwd: Path, stdin: str = "") -> tuple[RunResult, str]:
+        """Compile (if needed) and run one source file. Returns (result, stage) where
+        stage is "compile" or "run". Compiler flags are fixed here, never taken from lessons."""
+        if language == "python":
+            return await self.run_python([source], cwd, stdin, isolated=False), "run"
+        compiler = shutil.which("c++" if language == "cpp" else "cc")
+        if compiler is None:
+            return RunResult(
+                None,
+                "",
+                f"No {'C++' if language == 'cpp' else 'C'} compiler found. "
+                "Install Apple's tools: xcode-select --install",
+                False,
+            ), "compile"
+        std = "-std=c++20" if language == "cpp" else "-std=c17"
+        with tempfile.TemporaryDirectory(prefix="mentor-build-") as build:
+            binary = str(Path(build) / "program")
+            compiled = await self.run_argv(
+                [compiler, std, "-Wall", "-Wextra", "-o", binary, source],
+                cwd,
+                timeout=max(60.0, self.timeout),
+                cpu_seconds=max(30, self.cpu_seconds),
+                max_open_files=256,
+            )
+            if not compiled.ok:
+                return compiled, "compile"
+            return await self.run_argv([binary], cwd, stdin), "run"

@@ -23,6 +23,10 @@ class Trigger(StrEnum):
     REVIEW = "review"
     SESSION_START = "session_start"
     REPEATED_FAILURE = "repeated_failure"
+    PLAN = "plan"
+    PLAN_REVISE = "plan_revise"
+    PREPARE_STEP = "prepare_step"
+    REVIEW_STEP = "review_step"
 
 
 SOLICITED = frozenset(
@@ -35,6 +39,10 @@ SOLICITED = frozenset(
         Trigger.VERIFICATION,
         Trigger.REVIEW,
         Trigger.SESSION_START,
+        Trigger.PLAN,
+        Trigger.PLAN_REVISE,
+        Trigger.PREPARE_STEP,
+        Trigger.REVIEW_STEP,
     }
 )
 

@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 from cli_mentor.config import Config
-from cli_mentor.curriculum.loader import load_lessons
+from cli_mentor.curriculum.model import Hint, Lesson
 from cli_mentor.curriculum.verify import Check, VerificationResult
 from cli_mentor.db.store import open_store
 from cli_mentor.memory.evidence import DAY, EvidenceStore
@@ -13,6 +13,26 @@ from cli_mentor.memory.privacy_ops import delete_session, export_json, purge_exp
 from cli_mentor.memory.profile import DEFAULT_PROFILE, Profile
 from cli_mentor.memory.sessions import Sessions
 from cli_mentor.tutor.policy import InterventionPolicy, PolicySettings, Trigger
+
+
+def make_lesson(lid: str, skills: list[str]) -> Lesson:
+    return Lesson(
+        id=lid,
+        version=1,
+        title=lid,
+        track="plan",
+        skills=skills,
+        objectives=["x"],
+        instructions="do the thing",
+        workdir="plans/x",
+        hints=[Hint(level=1, text="h")],
+        verifier="plan.generic.v1",
+        risk="writes_workspace",
+    )
+
+
+NAV = make_lesson("plan.p00000001.s1", ["cli.navigate.pwd", "cli.navigate.cd"])
+FILES = make_lesson("plan.p00000001.s2", ["cli.files.cp"])
 
 
 class Clock:
@@ -108,8 +128,7 @@ def result(passed: bool) -> VerificationResult:
 def test_skill_states_and_review_schedule(tmp_path: Path) -> None:
     clock = Clock(1_000_000.0)
     ev = EvidenceStore(open_store(tmp_path / "db.sqlite3"), clock)
-    nav = load_lessons()["cli.navigation"]
-    files = load_lessons()["cli.files"]
+    nav, files = NAV, FILES
     ev.introduce(nav.skills)
     assert {s.state for s in ev.skill_states()} == {"introduced"}
     a = ev.start_attempt(None, nav, "guided")
@@ -135,13 +154,13 @@ def test_skill_states_and_review_schedule(tmp_path: Path) -> None:
     ev.record_review("cli.navigate.cd", passed=False, assistance=0)
     s = {x.skill: x for x in ev.skill_states()}["cli.navigate.cd"]
     assert s.next_review_at == clock.t + 1 * DAY and s.failures == 1
-    assert "cli.navigation" in ev.completed_exercises()
+    assert nav.id in ev.completed_exercises()
     assert files.id not in ev.completed_exercises()
 
 
 def test_failed_check_does_not_finish_attempt(tmp_path: Path) -> None:
     ev = EvidenceStore(open_store(tmp_path / "db.sqlite3"))
-    nav = load_lessons()["cli.navigation"]
+    nav = NAV
     a = ev.start_attempt(None, nav, "assessment")
     ev.record_verification(a.id, nav, result(False))
     assert ev.current_attempt(nav.id) is not None

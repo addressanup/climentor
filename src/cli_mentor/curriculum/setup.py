@@ -15,7 +15,6 @@ from pathlib import Path
 from ..db.store import Store
 from ..observe.workspace import WorkspaceScope
 from .model import Lesson
-from .verify import GENERATORS
 
 
 @dataclass
@@ -50,7 +49,7 @@ def plan_setup(lesson: Lesson, workspace_root: Path, scope: WorkspaceScope, rese
             if not target.is_dir():
                 plan.to_create.append((target, None))
             continue
-        content = GENERATORS[item.generator](item.generator_params) if item.generator else item.content
+        content = item.content
         content = content.lstrip("\n") if content.startswith("\n") else content
         if target.exists() and not reset:
             plan.existing.append(target)

@@ -24,6 +24,21 @@ class RequestCheck(BaseModel):
     reason: str = Field(default="", max_length=200)
 
 
+class AssessStep(BaseModel):
+    """The tutor's review of a step that has no automatic check (recorded as unverified)."""
+
+    model_config = ConfigDict(extra="forbid")
+    verdict: Literal["complete", "needs_work"]
+    feedback: str = Field(default="", max_length=600)
+
+
+ASSESS_TOOL = ToolSpec(
+    "assess_step",
+    "Give your verdict on the learner's work for a step that has no automatic check: 'complete' or "
+    "'needs_work', with one or two sentences of feedback. Your verdict is recorded as unverified.",
+    AssessStep.model_json_schema(),
+)
+
 TOOLS: list[ToolSpec] = [
     ToolSpec(
         "propose_memory",
@@ -38,10 +53,11 @@ TOOLS: list[ToolSpec] = [
 ]
 
 
-def validate(call: ToolCall) -> ProposeMemory | RequestCheck | None:
+def validate(call: ToolCall) -> ProposeMemory | RequestCheck | AssessStep | None:
     models: dict[str, type[BaseModel]] = {
         "propose_memory": ProposeMemory,
         "request_check": RequestCheck,
+        "assess_step": AssessStep,
     }
     model = models.get(call.name)
     if model is None:

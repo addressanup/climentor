@@ -188,6 +188,9 @@ def run_checks(paths: AppPaths | None = None) -> list[CheckResult]:
         )
     add(CheckResult("Keychain backend", "INFO", keychain_backend_name()))
 
+    cxx = shutil.which("c++")
+    add(CheckResult("C/C++ compiler", "OK" if cxx else "INFO", cxx or "not found",
+                    "" if cxx else "Needed only for C/C++ plans: `xcode-select --install`"))
     learner_py = shutil.which("python3")
     lv = _version(["python3", "--version"], r"Python (\d+\.\d+)") if learner_py else None
     add(

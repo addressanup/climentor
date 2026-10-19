@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import os
 import time
-from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, ClassVar, Literal, Protocol
@@ -46,9 +45,15 @@ class VerificationResult:
     technique: Technique = "not_applicable"
     technique_detail: str = ""
     executed_learner_code: bool = False
+    needs_review: bool = False  # no automatic check: the tutor reviews the work
     at: float = field(default_factory=time.time)
 
     def summary(self) -> str:
+        if self.needs_review:
+            return (
+                f"**No automatic check for this step** (trusted checker `{self.verifier}`). "
+                "The tutor will review your work; that review is recorded as *unverified*."
+            )
         head = "PASSED" if self.passed else "NOT YET"
         lines = [f"**Check result: {head}** (trusted checker `{self.verifier}`)"]
         for c in self.checks:
@@ -93,23 +98,12 @@ class Verifier(Protocol):
 
 
 REGISTRY: dict[str, Verifier] = {}
-GENERATORS: dict[str, Callable[[dict[str, Any]], str]] = {}
 
 
 def register(cls: type[Any]) -> type[Any]:
     instance = cls()
     REGISTRY[instance.id] = instance
     return cls
-
-
-def generator(
-    name: str,
-) -> Callable[[Callable[[dict[str, Any]], str]], Callable[[dict[str, Any]], str]]:
-    def deco(fn: Callable[[dict[str, Any]], str]) -> Callable[[dict[str, Any]], str]:
-        GENERATORS[name] = fn
-        return fn
-
-    return deco
 
 
 def get_verifier(verifier_id: str) -> Verifier:
@@ -121,4 +115,4 @@ def get_verifier(verifier_id: str) -> Verifier:
 
 
 def load_adapters() -> None:
-    from .adapters import cli, nvim, python  # noqa: F401  (registers verifiers)
+    from .adapters import generic  # noqa: F401  (registers verifiers)

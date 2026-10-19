@@ -13,8 +13,11 @@ learn by doing.
 └──────────────────────────────────────────────────┘
 ```
 
-- **You do the work.** The tutor explains, asks you to predict, gives small
-  hints, and checks results with trusted code.
+- **You choose what to learn.** The tutor asks "What would you like to
+  learn?", turns your answer (say, "C++ from the very basics") into a
+  step-by-step plan, and you accept or change it.
+- **You do the work.** For each step it explains every new word and symbol,
+  asks you to predict, gives small hints, and checks results with trusted code.
 - **It watches only what you allow:** the panes of its own tmux session and
   your practice folder (`~/cli-mentor-workspace`). Pause any time.
 - **It remembers** your goals, what you have shown you can do, and where you
@@ -47,11 +50,13 @@ uv run mentor init
 uv run mentor start
 ```
 
-Inside the session, type `/lesson` in the tutor pane (left) to begin.
+Inside the session, answer the tutor's question "What would you like to learn?"
+in the tutor pane (left). It proposes a plan; reply **yes** to start.
 Move between panes with **Ctrl+b** then an arrow key. Quit with **Ctrl+Q**.
 
-Want to try it without any API key? `uv run mentor demo` uses real tmux,
-Neovim and zsh with an offline **mock** tutor (clearly labelled, not an AI).
+Learning plans need a real AI model (your own key). `uv run mentor demo`
+shows the program with an offline **mock** tutor, but the mock cannot design
+plans.
 
 Optional: put `mentor` on your PATH with `uv tool install --editable .`
 (this writes to `~/.local/bin`).
@@ -68,7 +73,7 @@ and `/context` shows exactly what would be sent.
 | Where | Command |
 |---|---|
 | Terminal | `mentor start`, `mentor resume`, `mentor stop`, `mentor sessions` |
-| Tutor pane | `/lesson`, `/hint`, `/explain <term>`, `/check`, `/progress`, `/observe pause` |
+| Tutor pane | `/learn <topic>`, `/plan`, `/lesson`, `/hint`, `/explain <term>`, `/check`, `/observe pause` |
 
 Full list: [docs/COMMANDS.md](docs/COMMANDS.md) or `/help`.
 
@@ -89,7 +94,7 @@ see `tests/live/test_live_providers.py`.
 ## Documentation
 
 - [Architecture](docs/ARCHITECTURE.md) · [Threat model](docs/THREAT_MODEL.md) · [Decisions](docs/DECISIONS.md)
-- [Commands](docs/COMMANDS.md) · [Curriculum format](docs/CURRICULUM.md) · [Privacy and deletion](docs/PRIVACY.md)
+- [Commands](docs/COMMANDS.md) · [Learning plans](docs/CURRICULUM.md) · [Privacy and deletion](docs/PRIVACY.md)
 - [Troubleshooting](docs/TROUBLESHOOTING.md) · [Uninstall](docs/UNINSTALL.md) · [Features](docs/FEATURES.md)
 - [Status and handoff](STATUS.md) · [Checklist](docs/CHECKLIST.md) · [Example config](config.example.toml)
 

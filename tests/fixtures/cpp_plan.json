@@ -1,0 +1,89 @@
+{
+  "plan": {
+    "title": "C++ from the very basics",
+    "goal_summary": "Learn C++ step by step, starting from your first program.",
+    "assumptions": ["You have not written C++ before"],
+    "modules": [
+      {
+        "title": "First programs",
+        "summary": "Write, compile, and run a program.",
+        "steps": [
+          {"title": "Hello, C++", "objective": "Write, compile, and run your first C++ program",
+           "new_concepts": ["#include", "main", "std::cout", "compiler"]},
+          {"title": "Variables and types", "objective": "Store numbers and text in variables",
+           "new_concepts": ["int", "std::string", "="]}
+        ]
+      },
+      {
+        "title": "Thinking like a programmer",
+        "summary": "Read code before running it.",
+        "steps": [
+          {"title": "Reading code aloud", "objective": "Explain what a short program does, line by line",
+           "new_concepts": []}
+        ]
+      }
+    ]
+  },
+  "steps": [
+    {
+      "skills": ["cpp.basics.hello", "cpp.toolchain.compile"],
+      "vocabulary": [
+        {"term": "compiler", "meaning": "A program that turns your C++ text into a program the computer can run."},
+        {"term": "std::cout", "meaning": "The standard output stream: what you send to it appears on the screen."}
+      ],
+      "syntax": [
+        {"example": "std::cout << \"Hi\";", "parts": [
+          {"token": "std::cout", "meaning": "the screen output stream"},
+          {"token": "<<", "meaning": "send the thing on the right into the stream on the left"},
+          {"token": "\"Hi\"", "meaning": "a piece of text (a string)"},
+          {"token": ";", "meaning": "end of this statement"}
+        ]}
+      ],
+      "demonstration": "```cpp\n#include <iostream>\nint main() {\n    std::cout << \"Hi\" << std::endl;\n}\n```",
+      "prediction": "What will the program above print?",
+      "prediction_answer": "Hi",
+      "instructions": "In this step's folder, finish hello.cpp so it prints exactly: Hello, C++!\nCompile it with: c++ hello.cpp -o hello\nRun it with: ./hello\nThen type /check.",
+      "starter_files": [{"path": "hello.cpp", "content": "// Write your first C++ program here.\n"}],
+      "hints": [
+        "Every C++ program starts running in a function called main.",
+        "You need #include <iostream> at the top to use std::cout.",
+        "int main() { std::cout << \"Hello, C++!\" << std::endl; }"
+      ],
+      "checks": [
+        {"type": "command_succeeded", "program": "c++"},
+        {"type": "program_output", "language": "cpp", "source": "hello.cpp", "expected_stdout": "Hello, C++!\n"}
+      ],
+      "solution": "#include <iostream>\nint main() {\n    std::cout << \"Hello, C++!\" << std::endl;\n}",
+      "transfer": ["How would you print two lines?"]
+    },
+    {
+      "skills": ["cpp.basics.variables"],
+      "vocabulary": [{"term": "int", "meaning": "A type for whole numbers."}],
+      "syntax": [],
+      "demonstration": "```cpp\nint age = 30;\n```",
+      "prediction": "",
+      "prediction_answer": "",
+      "instructions": "Which C++ type stores whole numbers? Answer with /check <type>.",
+      "starter_files": [],
+      "hints": ["It is a three-letter word."],
+      "checks": [{"type": "learner_answer", "question": "Which type stores whole numbers?", "accepted": ["int"]}],
+      "solution": "int",
+      "transfer": []
+    },
+    {
+      "skills": ["cpp.reading"],
+      "vocabulary": [],
+      "syntax": [],
+      "demonstration": "",
+      "prediction": "",
+      "prediction_answer": "",
+      "instructions": "Write notes.txt explaining hello.cpp line by line in your own words, then type /check.",
+      "starter_files": [],
+      "hints": ["Start with what #include does."],
+      "checks": [],
+      "solution": "",
+      "transfer": []
+    }
+  ],
+  "assessment": {"verdict": "complete", "feedback": "Clear explanation of each line."}
+}

@@ -16,7 +16,7 @@ Test evidence is listed in `STATUS.md`.
 | Stale socket / runtime cleanup | Done | Only our own folders, only if nothing is listening |
 | No orphaned processes on shutdown | Done | e2e test checks with `pgrep` |
 | `mentor doctor` | Done | Installs nothing |
-| Offline demo (`mentor demo`) | Done | Real tools, mock tutor, separate data |
+| Offline demo (`mentor demo`) | Partial | Real tools and mock tutor; cannot design plans |
 | Linux support | Planned | Code avoids macOS-only calls where practical; CI job is experimental; not verified |
 | bash / fish shell hooks | Planned | zsh only |
 
@@ -69,17 +69,21 @@ Test evidence is listed in `STATUS.md`.
 | Usage accounting; estimated vs actual labelled | Done | Cost only from your configured prices |
 | Keys in Keychain or env; never in config/logs/exports/prompts | Done | |
 
-## Curriculum and verification
+## Learning plans and verification
 
 | Feature | Status | Notes |
 |---|---|---|
-| Versioned lesson format, data-only | Done | `docs/CURRICULUM.md` |
-| 3 CLI, 3 Neovim, 3 Python exercises | Done | Each verifier tested with right and wrong work |
-| Technique evidence for Neovim (mode events, opt-in counts) | Done | Otherwise reported "unverified" |
-| Host execution of Python checks with limits | Done | Not a sandbox; permission required |
-| Safe setup/cleanup of exercise files | Done | |
-| Git, PostgreSQL, debugging, other languages, systems tracks | Planned | Extension routes documented |
-| Strong sandboxing (containers/VMs, `sandbox-exec`) | Planned | |
+| Welcome asks "What would you like to learn?" | Done | Deterministic first message, stored for context |
+| AI-designed linear plan (propose, revise, accept) | Done (offline-tested) | Validated tool call; tested with recorded answers; quality depends on your model |
+| Steps prepared on demand using memory and evidence | Done (offline-tested) | `prepare_step` tool, validated, turned into a normal lesson |
+| Later sessions offer to continue | Done | "Welcome back… next is step N" |
+| Fixed check menu run by trusted code | Done | files, commands, C/C++/Python output, answers, opt-in editor counts |
+| Real C/C++ compile-and-run checks | Done | Apple clang; fixed flags; host execution with limits, not a sandbox |
+| AI review for steps without automatic checks | Done | Recorded as unverified |
+| Built-in fixed lessons | Removed | By request; the mock tutor cannot teach without a recorded plan |
+| Other languages' program checks (Rust, Go, Java…) | Planned | Needs a runner per language |
+| Database / Git / infrastructure check types | Planned | |
+| Strong sandboxing (containers/VMs) | Planned | |
 
 ## Memory, privacy, permissions
 

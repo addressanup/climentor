@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import os
+
 from ..apikeys import get_api_key
 from ..config import Config, ProviderName
 from ..logs import register_secret
 from .base import Provider, ProviderError
-from .mock import MockProvider
+from .mock import MockBehaviour, MockProvider
 
 
 def build_provider(config: Config, name: ProviderName | None = None) -> Provider:
@@ -14,7 +16,9 @@ def build_provider(config: Config, name: ProviderName | None = None) -> Provider
     chosen = name or config.tutor.provider
     settings = config.provider_settings(chosen)
     if chosen == "mock":
-        return MockProvider(settings.model or "mock-tutor")
+        fixture = os.environ.get("CLI_MENTOR_MOCK_FIXTURE")  # recorded plan answers for tests/demos
+        behaviour = MockBehaviour.from_fixture(fixture) if fixture else None
+        return MockProvider(settings.model or "mock-tutor", behaviour)
     lookup = get_api_key(chosen)
     if lookup.key is None:
         raise ProviderError(

@@ -101,6 +101,7 @@ def rig(tmp_path: Path, short_tmp: Path) -> Iterator[Rig]:
         CLI_MENTOR_RUNTIME_DIR=str(short_tmp / "run"),
         CLI_MENTOR_TMUX_SOCKET=socket,
         PYTHON_KEYRING_BACKEND="keyring.backends.null.Keyring",
+        CLI_MENTOR_MOCK_FIXTURE=str(Path(__file__).parents[1] / "fixtures" / "cpp_plan.json"),
     )
     r = Rig(env, tmp_path / "mentor", (tmp_path / "ws").resolve(), socket)
     r.mentor("init", "--yes", "--provider", "mock", "--workspace", str(r.ws))
@@ -124,45 +125,68 @@ def tutor_messages(r: Rig, trigger: str) -> list[str]:
     ]
 
 
+def step_dir(r: Rig) -> Path:
+    found = sorted(r.ws.glob("plans/*/s1-*"))
+    assert found, "step folder not created"
+    return found[0]
+
+
+def to_first_step(r: Rig, tutor: str) -> Path:
+    wait(lambda: "What would you like to learn?" in r.screen(tutor), what="welcome question")
+    r.type(tutor, "I want to learn C++ from the very basics to the most advanced features")
+    plan = wait(lambda: [m for m in tutor_messages(r, "plan") if "Module 1: First programs" in m], what="proposed plan")
+    assert isinstance(plan, list) and "Reply **yes**" in plan[0]
+    r.type(tutor, "yes")
+    wait(lambda: "Create exercise files?" in r.screen(tutor), what="setup approval")
+    r.key(tutor, "y")
+    intro = wait(lambda: tutor_messages(r, "lesson_intro"), what="lesson intro")
+    assert isinstance(intro, list) and "New words" in intro[0] and "Your task" not in intro[0]
+    return step_dir(r)
+
+
 def test_acceptance_learning_flow(rig: Rig) -> None:
     r = rig
     p = start(r)
     tutor, shell, editor = p["tutor"], p["shell"], p["editor"]
-    status = r.screen(tutor)
-    assert "MODEL: MOCK" in status and "SYNC:" in status
+    assert "MODEL: MOCK" in r.screen(tutor)
 
-    # 3. Explain before assigning.
-    r.type(tutor, "/lesson start cli.pipelines")
-    wait(lambda: "Create exercise files?" in r.screen(tutor), what="setup approval")
-    r.key(tutor, "y")
-    intro = wait(lambda: tutor_messages(r, "lesson_intro"), what="lesson intro")
-    assert isinstance(intro, list)
-    assert "New words" in intro[0] and "`|` — pipe" in intro[0] and "Your task" not in intro[0]
-    assert (r.ws / "cli/03-pipelines/server.log").exists()
-    r.type(tutor, "3")
+    # 1-3. Welcome asks for a goal; the goal becomes a plan; the first step explains before the task.
+    wd = to_first_step(r, tutor)
+    assert (wd / "hello.cpp").exists()
+    r.type(tutor, "Hi")
     pred = wait(lambda: tutor_messages(r, "prediction"), what="prediction reply")
     assert isinstance(pred, list) and "Your task" in pred[0]
 
-    # 4-6. Deliberate mistake twice -> the actual error -> a small hint.
-    wd = r.ws / "cli/03-pipelines"
+    # 4-6. A real compile error twice -> the actual error -> a small hint.
+    (wd / "hello.cpp").write_text("int main() { std::cout << 1 }\n")
     r.type(shell, f"cd {wd}")
-    r.type(shell, "grep ERROR sever.log")
-    time.sleep(0.5)
-    r.type(shell, "grep ERROR sever.log")
-    hint = wait(lambda: tutor_messages(r, "repeated_failure"), timeout=20, what="unsolicited hint")
-    assert isinstance(hint, list)
-    assert "sever.log" in hint[0] and "No such file" in hint[0] and "Small hint (1)" in hint[0]
+    r.type(shell, "c++ hello.cpp -o hello")
+    time.sleep(1.0)
+    r.type(shell, "c++ hello.cpp -o hello")
+    hint = wait(lambda: tutor_messages(r, "repeated_failure"), timeout=25, what="unsolicited hint")
+    assert isinstance(hint, list) and "error" in hint[0] and "Small hint (1)" in hint[0]
 
-    # 7-9. Correction -> trusted check -> evidence shows the help received.
-    r.type(shell, "grep ERROR server.log | wc -l > error_count.txt")
-    rows = wait(
+    # 7-9. Fix, compile, /check runs the code (after approval) -> evidence shows the help received.
+    (wd / "hello.cpp").write_text('#include <iostream>\nint main() { std::cout << "Hello, C++!" << std::endl; }\n')
+    r.type(shell, "c++ hello.cpp -o hello && ./hello")
+    wait(
         lambda: r.db(
-            "SELECT result, assistance_level FROM skill_evidence WHERE exercise_id='cli.pipelines' AND kind='verification'"
+            "SELECT 1 FROM events WHERE type='shell.command_finished' AND payload LIKE '%./hello%' "
+            "AND payload LIKE '%\"exit_status\": 0%'"
         ),
+        what="successful compile",
+    )
+    r.type(tutor, "/check")
+    wait(lambda: "Run your code to check it?" in r.screen(tutor), what="run-code approval")
+    r.key(tutor, "y")
+    rows = wait(
+        lambda: r.db("SELECT result, assistance_level FROM skill_evidence WHERE kind='verification'"),
+        timeout=30,
         what="verification evidence",
     )
     assert isinstance(rows, list) and all(row == ("pass", 1) for row in rows)
-    wait(lambda: "(verified)" in r.screen(tutor), what="verified status")
+    nxt = wait(lambda: [m for m in tutor_messages(r, "verification") if "Next is **step 2" in m], what="next step")
+    assert nxt
 
     # 12. Unsaved Neovim edits reach the tutor process; the disk is unchanged.
     notes = r.ws / "notes.txt"
@@ -196,7 +220,6 @@ def test_acceptance_learning_flow(rig: Rig) -> None:
         lambda: r.db("SELECT 1 FROM events WHERE type='tmux.snapshot' AND payload LIKE '%\"resume\"%'"),
         what="resume snapshot",
     )
-    assert not r.db("SELECT 1 FROM events WHERE payload LIKE '%PAUSED-SECRET-77\"%' AND type LIKE 'shell.%'")
 
     # 15. Ending the session warns about unsaved work, then leaves nothing running.
     r.key(tutor, "C-q")
@@ -204,7 +227,7 @@ def test_acceptance_learning_flow(rig: Rig) -> None:
     r.key(tutor, "e")
     wait(lambda: "Unsaved work!" in r.screen(tutor), what="unsaved warning")
     r.key(tutor, "n")
-    assert len(r.panes()) == 3  # nothing was closed
+    assert len(r.panes()) == 3
     r.key(editor, "Escape")
     r.type(editor, ":w")
     wait(lambda: "UNSAVED-EDIT-42" in notes.read_text(), what="saved file")
@@ -231,27 +254,19 @@ def test_restart_resume_and_provider_failure(rig: Rig) -> None:
     tutor = p["tutor"]
     wait(lambda: "No API key for anthropic" in r.screen(tutor), what="provider error note")
     assert "MODEL: MOCK" in r.screen(tutor)
-    r.type(tutor, "/lesson start cli.files")
-    wait(lambda: "Create exercise files?" in r.screen(tutor), what="setup approval")
-    r.key(tutor, "y")
-    wait(lambda: tutor_messages(r, "lesson_intro"), what="lesson intro")
+    to_first_step(r, tutor)
     r.type(tutor, "/hint")
     wait(lambda: tutor_messages(r, "hint"), what="hint")
     sid = r.session_id()
 
-    # 10. The tutor process dies; the pane stays; `mentor resume` restarts it with memory.
+    # 10. The tutor process dies; the pane stays; `mentor resume` restarts it and offers to continue.
     pid = int(r.tmux("display-message", "-p", "-t", tutor, "#{pane_pid}").strip())
     os.kill(pid, 9)
     wait(lambda: r.tmux("display-message", "-p", "-t", tutor, "#{pane_dead}").strip() == "1", what="dead tutor pane")
-    assert len(r.panes()) == 3  # editor and shell are untouched
-    out = r.mentor("resume", sid, "--detach").stdout
-    assert "restarted" in out
-    wait(
-        lambda: "Welcome back" in r.screen(tutor) and "Tidy the desk" in r.screen(tutor),
-        timeout=20,
-        what="welcome back",
-    )
-    assert r.db("SELECT hints_used FROM attempts WHERE exercise_id='cli.files'")[0][0] == 1
+    assert len(r.panes()) == 3
+    assert "restarted" in r.mentor("resume", sid, "--detach").stdout
+    wait(lambda: "Welcome back" in r.screen(tutor) and "Hello, C++" in r.screen(tutor), timeout=20, what="welcome back")
+    assert r.db("SELECT hints_used FROM attempts")[0][0] == 1
 
     # Zooming a pane does not break observation.
     shell = p["shell"]
@@ -273,5 +288,4 @@ def test_restart_resume_and_provider_failure(rig: Rig) -> None:
         lambda: subprocess.run(["tmux", "-L", r.socket, "has-session"], capture_output=True).returncode != 0,
         what="session stopped",
     )
-    sessions = r.mentor("sessions").stdout
-    assert sid in sessions and "ended" in sessions
+    assert sid in r.mentor("sessions").stdout

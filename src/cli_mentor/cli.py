@@ -328,7 +328,6 @@ def cmd_demo(args: argparse.Namespace) -> int:
 def cmd_tutor(args: argparse.Namespace) -> int:
     from .providers import build_provider
     from .providers.base import ProviderError
-    from .providers.mock import MockProvider
     from .tmuxutil import Tmux
     from .tutor.engine import Engine
     from .ui.app import MentorApp
@@ -348,7 +347,7 @@ def cmd_tutor(args: argparse.Namespace) -> int:
     try:
         provider = build_provider(config)
     except ProviderError as exc:
-        provider = MockProvider()
+        provider = build_provider(config, "mock")
         notes.append(("error", exc.user_message() + " Using the offline MOCK tutor until this is fixed."))
     tmux = Tmux(
         os.environ.get("CLI_MENTOR_TMUX_SOCKET", "cli-mentor"),

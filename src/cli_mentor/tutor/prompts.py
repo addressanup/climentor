@@ -80,37 +80,51 @@ TRIGGER_GUIDANCE = {
     "review": "Ask one short review question about the listed skills. Wait for the answer.",
     "session_start": "Greet the learner briefly. Remind them where they left off, if known.",
     "learner_message": "Answer the learner's message as their CLI Mentor tutor, using <learner_progress>. "
-    "If they greet you, seem unsure, or ask what to do: greet in one line, say where they are in the program "
-    "(first session, current exercise, or what they finished), and offer ONE concrete next step inside the "
-    "program, usually `/lesson` to start or continue the suggested exercise. Do not run an intake interview "
-    "about things the confirmed profile already says. Their skill level is unknown until checks record "
-    "evidence: instead of quizzing them first, point them to the suggested exercise (it starts from zero) and "
-    "invite them to tell you if something is already familiar.",
+    "If they greet you, seem unsure, or ask what to do: greet in one line, say where they are in their plan, "
+    "and offer ONE concrete next step inside the program (usually `/lesson` to start or continue the current "
+    "step). Do not run an intake interview about things the confirmed profile already says. If they want to "
+    "learn a different topic, tell them to type `/learn <topic>`.",
+    "plan": "The learner just told you what they want to learn (in <learner_message>). Acknowledge it in one "
+    "or two short sentences. Then call the propose_plan tool ONCE with a complete linear plan: modules in "
+    "order from the true basics to advanced topics, each split into small steps with one or two new ideas "
+    "per step. Use the confirmed profile and any evidence. Do NOT write the plan as text; the program "
+    "displays it from the tool call and asks the learner to accept or change it.",
+    "plan_revise": "The learner asked to change the proposed plan (current outline in <exercise>). Acknowledge "
+    "briefly, then call propose_plan ONCE with the full revised plan. Do not write the plan as text.",
+    "prepare_step": "Prepare the current plan step (described in <exercise>) by calling prepare_step ONCE and "
+    "writing nothing else. Teach only this step's ideas; assume only what earlier steps taught and what the "
+    "evidence shows. Put every new word in vocabulary and break new syntax down symbol by symbol. Starter "
+    "files must not contain the solution. Use checks ONLY from the allowed types: program_output for code "
+    "(it compiles C/C++ or runs Python with fixed safe settings), command_succeeded for tools the learner "
+    "should run (for example c++ or make), file_exists / file_contains for files, learner_answer for "
+    "concepts, editor_commands for Neovim technique. Prefer at least one automatic check.",
+    "review_step": "This step has no automatic check. Review the observed work in <observed_workspace> "
+    "against the task, reply with short, specific feedback, and call assess_step ONCE with verdict "
+    "'complete' or 'needs_work'. Your verdict is recorded as unverified.",
 }
 
 
-def program_overview(tracks: dict[str, list[tuple[str, str]]], track_titles: dict[str, str]) -> str:
+def program_overview() -> str:
     """What the model needs to know about the program it is part of."""
-    lines = [
-        "About the program you are part of (CLI Mentor):",
-        "- The learner sees one tmux window: you in the tutor pane on the left, Neovim top right, a zsh shell "
-        "bottom right. They type messages to you in the tutor pane and do the work in the shell and Neovim.",
-        "- While observation is on, you get a summary of those panes in <observed_workspace>. You cannot type "
-        "into them or run commands.",
-        "- Commands the learner can type to you: /lesson (start or continue the next exercise), /lesson list, "
-        "/lesson start <id>, /hint, /explain <term>, /check [answer], /progress, /review, /goal <text>, "
-        "/mode <name>, /observe pause|resume, /context, /help. Mention a command when it is the natural next step.",
-        "- Each exercise is checked by trusted code. Only those checks record progress; hints and solutions are "
-        "recorded as help received.",
-        "- Built-in curriculum (id: title):",
-    ]
-    for track, items in tracks.items():
-        lines.append(f"  {track_titles.get(track, track)}: " + "; ".join(f"{lid}: {title}" for lid, title in items))
-    lines.append(
-        "- Guide the learner into the built-in exercises. Do not invent a separate exercise when a built-in one "
-        "covers the topic (extra practice is fine after they finish one, when they ask, or in project mode)."
+    return "\n".join(
+        [
+            "About the program you are part of (CLI Mentor):",
+            "- The learner sees one tmux window: you in the tutor pane on the left, Neovim top right, a zsh shell "
+            "bottom right. They type messages to you in the tutor pane and do the work in the shell and Neovim.",
+            "- While observation is on, you get a summary of those panes in <observed_workspace>. You cannot type "
+            "into them or run commands.",
+            "- Learning works through plans. The learner says what they want to learn; you propose a linear plan "
+            "(propose_plan); after they accept it, each step is prepared when they reach it (prepare_step) and "
+            "taught in order: explain the words and symbols, show an example, ask a prediction, give the task, "
+            "check the work, ask a transfer question.",
+            "- Steps are checked by trusted code where possible. Without an automatic check you review the work, "
+            "and that review is recorded as unverified. Hints and solutions are recorded as help received.",
+            "- Commands the learner can type to you: /lesson (start or continue the current step), /plan (show "
+            "the plan), /learn <topic> (start a new plan), /plan skip, /hint, /explain <term>, /check [answer], "
+            "/progress, /review, /goal <text>, /mode <name>, /observe pause|resume, /context, /help. Mention a "
+            "command when it is the natural next step.",
+        ]
     )
-    return "\n".join(lines)
 
 
 def system_prompt(mode: str, profile_lines: list[str], program: str = "") -> str:

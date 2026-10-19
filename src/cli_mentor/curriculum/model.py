@@ -38,8 +38,6 @@ class SetupFile(_M):
     path: str
     kind: Literal["file", "dir"] = "file"
     content: str = ""
-    generator: str | None = None  # name of a trusted generator in adapters
-    generator_params: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("path")
     @classmethod

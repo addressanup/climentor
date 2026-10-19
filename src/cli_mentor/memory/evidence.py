@@ -120,6 +120,12 @@ class EvidenceStore:
             (level, 1 if hint else 0, 1 if solution else 0, attempt_id),
         )
 
+    def close_attempt(self, attempt_id: str, status: str = "passed") -> None:
+        self.store.conn.execute(
+            "UPDATE attempts SET status = ?, finished_at = ? WHERE id = ? AND status = 'in_progress'",
+            (status, self.clock(), attempt_id),
+        )
+
     def abandon(self, attempt_id: str) -> None:
         self.store.conn.execute(
             "UPDATE attempts SET status = 'abandoned', finished_at = ? WHERE id = ? AND status = 'in_progress'",

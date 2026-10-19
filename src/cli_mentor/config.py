@@ -29,6 +29,8 @@ class ProviderSettings(_Model):
     model: str = ""
     base_url: str = ""
     max_output_tokens: int = Field(default=1024, ge=64, le=32000)
+    # Bigger budget for structured planning calls (whole plan / one prepared step).
+    plan_max_output_tokens: int = Field(default=8000, ge=1000, le=64000)
     max_context_tokens: int = Field(default=24000, ge=2000, le=1_000_000)
     timeout_seconds: float = Field(default=60.0, gt=0, le=600)
     max_retries: int = Field(default=2, ge=0, le=5)
