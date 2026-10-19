@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  macos:
+    name: macOS (supported)
+    runs-on: macos-14
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install tmux and Neovim (CI machine only)
+        run: brew install tmux neovim
+      - uses: astral-sh/setup-uv@v6
+      - name: Install Python dependencies from the lock file
+        run: uv sync --locked
+      - name: Lint
+        run: uv run ruff check . && uv run ruff format --check .
+      - name: Type check
+        run: uv run mypy
+      - name: Tests (no paid API calls)
+        run: uv run pytest -m "not live"
+
+  linux:
+    name: Linux (experimental, not a supported platform yet)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install tmux, Neovim, zsh
+        run: sudo apt-get update && sudo apt-get install -y tmux neovim zsh
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --locked
+      - run: uv run pytest -m "not live" tests/unit

@@ -32,8 +32,9 @@ class Rig:
     socket: str
 
     def mentor(self, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
-        proc = subprocess.run([sys.executable, "-m", "cli_mentor", *args], env=self.env, capture_output=True,
-                              text=True, timeout=60)
+        proc = subprocess.run(
+            [sys.executable, "-m", "cli_mentor", *args], env=self.env, capture_output=True, text=True, timeout=60
+        )
         if check and proc.returncode != 0:
             raise AssertionError(f"mentor {' '.join(args)} failed:\n{proc.stdout}\n{proc.stderr}")
         return proc
@@ -117,7 +118,10 @@ def start(r: Rig, *extra: str) -> dict[str, str]:
 
 
 def tutor_messages(r: Rig, trigger: str) -> list[str]:
-    return [str(row[0]) for row in r.db("SELECT content FROM messages WHERE role='tutor' AND trigger=? ORDER BY id", (trigger,))]
+    return [
+        str(row[0])
+        for row in r.db("SELECT content FROM messages WHERE role='tutor' AND trigger=? ORDER BY id", (trigger,))
+    ]
 
 
 def test_acceptance_learning_flow(rig: Rig) -> None:
@@ -151,8 +155,12 @@ def test_acceptance_learning_flow(rig: Rig) -> None:
 
     # 7-9. Correction -> trusted check -> evidence shows the help received.
     r.type(shell, "grep ERROR server.log | wc -l > error_count.txt")
-    rows = wait(lambda: r.db("SELECT result, assistance_level FROM skill_evidence WHERE exercise_id='cli.pipelines' AND kind='verification'"),
-                what="verification evidence")
+    rows = wait(
+        lambda: r.db(
+            "SELECT result, assistance_level FROM skill_evidence WHERE exercise_id='cli.pipelines' AND kind='verification'"
+        ),
+        what="verification evidence",
+    )
     assert isinstance(rows, list) and all(row == ("pass", 1) for row in rows)
     wait(lambda: "(verified)" in r.screen(tutor), what="verified status")
 
@@ -161,11 +169,17 @@ def test_acceptance_learning_flow(rig: Rig) -> None:
     notes.write_text("saved line\n")
     r.key(editor, "Escape")
     r.type(editor, f":e {notes}")
-    wait(lambda: r.db("SELECT 1 FROM events WHERE type='nvim.buffer_snapshot' AND payload LIKE '%saved line%'"), what="buffer snapshot")
+    wait(
+        lambda: r.db("SELECT 1 FROM events WHERE type='nvim.buffer_snapshot' AND payload LIKE '%saved line%'"),
+        what="buffer snapshot",
+    )
     r.key(editor, "o")
     r.type(editor, "UNSAVED-EDIT-42", enter=False)
     r.key(editor, "Escape")
-    wait(lambda: r.db("SELECT 1 FROM events WHERE type='nvim.buffer_lines' AND payload LIKE '%UNSAVED-EDIT-42%'"), what="unsaved edit event")
+    wait(
+        lambda: r.db("SELECT 1 FROM events WHERE type='nvim.buffer_lines' AND payload LIKE '%UNSAVED-EDIT-42%'"),
+        what="unsaved edit event",
+    )
     assert notes.read_text() == "saved line\n"
 
     # 11. Pause: nothing new is recorded; resume asks first and resnapshots.
@@ -178,7 +192,10 @@ def test_acceptance_learning_flow(rig: Rig) -> None:
     wait(lambda: "Resume observation?" in r.screen(tutor), what="resume consent")
     r.key(tutor, "y")
     wait(lambda: "OBS: ON" in r.screen(tutor), what="observation back on")
-    wait(lambda: r.db("SELECT 1 FROM events WHERE type='tmux.snapshot' AND payload LIKE '%\"resume\"%'"), what="resume snapshot")
+    wait(
+        lambda: r.db("SELECT 1 FROM events WHERE type='tmux.snapshot' AND payload LIKE '%\"resume\"%'"),
+        what="resume snapshot",
+    )
     assert not r.db("SELECT 1 FROM events WHERE payload LIKE '%PAUSED-SECRET-77\"%' AND type LIKE 'shell.%'")
 
     # 15. Ending the session warns about unsaved work, then leaves nothing running.
@@ -195,8 +212,10 @@ def test_acceptance_learning_flow(rig: Rig) -> None:
     r.key(tutor, "C-q")
     wait(lambda: "Leave CLI Mentor?" in r.screen(tutor), what="quit menu")
     r.key(tutor, "e")
-    wait(lambda: subprocess.run(["tmux", "-L", r.socket, "list-sessions"], capture_output=True).returncode != 0,
-         what="tmux server to exit")
+    wait(
+        lambda: subprocess.run(["tmux", "-L", r.socket, "list-sessions"], capture_output=True).returncode != 0,
+        what="tmux server to exit",
+    )
     time.sleep(0.5)
     leftovers = subprocess.run(["pgrep", "-f", str(r.home)], capture_output=True, text=True).stdout.strip()
     assert leftovers == "", f"orphaned processes: {leftovers}"
@@ -227,14 +246,32 @@ def test_restart_resume_and_provider_failure(rig: Rig) -> None:
     assert len(r.panes()) == 3  # editor and shell are untouched
     out = r.mentor("resume", sid, "--detach").stdout
     assert "restarted" in out
-    wait(lambda: "Welcome back" in r.screen(tutor) and "Tidy the desk" in r.screen(tutor), timeout=20, what="welcome back")
+    wait(
+        lambda: "Welcome back" in r.screen(tutor) and "Tidy the desk" in r.screen(tutor),
+        timeout=20,
+        what="welcome back",
+    )
     assert r.db("SELECT hints_used FROM attempts WHERE exercise_id='cli.files'")[0][0] == 1
+
+    # Zooming a pane does not break observation.
+    shell = p["shell"]
+    r.tmux("resize-pane", "-Z", "-t", shell)
+    r.type(shell, "echo zoomed-and-observed")
+    wait(
+        lambda: r.db(
+            "SELECT 1 FROM events WHERE type='shell.command_finished' AND payload LIKE '%zoomed-and-observed%'"
+        ),
+        what="command seen while zoomed",
+    )
+    r.tmux("resize-pane", "-Z", "-t", shell)
 
     # `mentor stop` refuses while Neovim is open; --force closes only our session.
     proc = r.mentor("stop", sid, check=False)
     assert proc.returncode == 1 and "Neovim is still open" in proc.stdout
     r.mentor("stop", sid, "--force")
-    wait(lambda: subprocess.run(["tmux", "-L", r.socket, "has-session"], capture_output=True).returncode != 0,
-         what="session stopped")
+    wait(
+        lambda: subprocess.run(["tmux", "-L", r.socket, "has-session"], capture_output=True).returncode != 0,
+        what="session stopped",
+    )
     sessions = r.mentor("sessions").stdout
     assert sid in sessions and "ended" in sessions

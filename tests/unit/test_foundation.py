@@ -190,3 +190,11 @@ def test_persistent_grant_survives_sessions(tmp_path: Path) -> None:
     pm_b = PermissionManager(store, "b")
     assert pm_b.check(Capability.NETWORK, "anthropic").allowed
     assert not pm_b.check(Capability.NETWORK, "openai").allowed
+
+
+def test_example_config_is_valid() -> None:
+    import tomllib
+
+    root = Path(__file__).resolve().parents[2]
+    data = tomllib.loads((root / "config.example.toml").read_text())
+    Config.model_validate(data)

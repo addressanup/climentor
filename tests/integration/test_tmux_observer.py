@@ -145,7 +145,7 @@ async def test_output_burst_is_captured(tmux: Tmux) -> None:
     try:
         tmux.send_keys(shell, "seq 1 20000; echo burst-done", "Enter")
         await wait_for(
-            lambda: "burst-done\r\n" in sink.output_for(shell) or any(s.reason == "gap" for s in sink.of(TmuxSnapshot)),
+            lambda: "20000\r\nburst-done\r\n" in sink.output_for(shell) or any(s.reason == "gap" for s in sink.of(TmuxSnapshot)),
             timeout=20,
         )
         text = sink.output_for(shell)

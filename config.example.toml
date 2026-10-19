@@ -1,0 +1,50 @@
+# Example CLI Mentor configuration.
+# Real location: ~/.config/cli-mentor/config.toml (created by `mentor init`).
+# Secrets do NOT belong here. API keys live in the macOS Keychain
+# (`mentor key set anthropic`) or in ANTHROPIC_API_KEY / OPENAI_API_KEY.
+
+schema_version = 1
+initialized = true
+# The only folder the tutor reads by default. Exercises create files here.
+workspace_root = "~/cli-mentor-workspace"
+# More approved folders (for project-mentor work). Keep this list short.
+extra_roots = []
+
+[tutor]
+provider = "mock"            # "mock" (offline demo), "anthropic", or "openai"
+mode = "guided"              # guided | practice | project | assessment | review | quiet
+unsolicited_cooldown_seconds = 60.0
+debounce_seconds = 2.0       # wait for a quiet moment before speaking unasked
+repeated_failure_threshold = 2
+
+[providers.anthropic]
+model = ""                   # pick one with `mentor init` (from the provider's own list)
+base_url = ""
+max_output_tokens = 1024
+max_context_tokens = 24000   # budget used to trim context (estimated, ~4 chars/token)
+timeout_seconds = 60.0
+max_retries = 2
+# Optional: your prices in USD per million tokens, only for an *estimated* cost.
+# input_price_per_mtok = 0.0
+# output_price_per_mtok = 0.0
+
+[providers.openai]
+model = ""
+base_url = ""                # set for OpenAI-compatible servers (unverified)
+max_output_tokens = 1024
+max_context_tokens = 24000
+timeout_seconds = 60.0
+max_retries = 2
+
+[providers.mock]
+model = "mock-tutor"
+
+[observation]
+max_file_bytes = 262144
+observe_unnamed_buffers = false
+cursor_coalesce_ms = 250
+max_queue_events = 2000
+
+[retention]
+raw_events_days = 7          # raw observations are deleted after this many days
+transcripts_days = 30        # conversation text is deleted after this many days

@@ -60,3 +60,47 @@ model as text notes, which avoids provider-specific tool-result pairing rules.
 zsh `zsocket` opens a short connection for each event. No persistent state in
 the shell, so a restarted tutor is picked up automatically. Lost events show as
 sequence gaps.
+
+## 2026-10-19 — Session token passed as a file path, not a value
+Values given to `tmux -e` appear in process arguments, which other local users
+can list on macOS. Panes receive `CLI_MENTOR_TOKEN_FILE` (a 0600 file in the
+0700 runtime folder) instead. The editor and shell panes are started through
+`env -u ANTHROPIC_API_KEY -u OPENAI_API_KEY`, so provider keys from the
+environment never reach learner programs through us.
+
+## 2026-10-19 — tmux reports `%pause`/`%continue` inside the reply block
+Observed with tmux 3.7: after `refresh-client -A %N:pause` the `%pause`
+notification is printed between that command's `%begin` and `%end`, although
+the manual says notifications never appear inside blocks. The client extracts
+these lines from `refresh-client` replies only. Output during a pause is lost,
+so recovery always takes a `gap` snapshot.
+
+## 2026-10-19 — Neovim `on_detach` handled synchronously
+`:edit!` detaches and re-reads a buffer. A scheduled "detached" message
+arrived after the fresh snapshot and dropped the buffer. Sending it inside the
+callback keeps the order right (found by the reload integration test).
+
+## 2026-10-19 — Telemetry parser accepts operator-pending mode
+After `d`/`c`/`y`, Neovim reports mode `no`, not `n`. The opt-in counter treats
+any mode starting with `n` as Normal mode.
+
+## 2026-10-19 — Textual Markdown mount race
+`Markdown` re-applies its constructor text when it mounts, which wiped fast
+replies that finished first. `LiveMarkdown` also sets Textual 8.x's
+`_initial_markdown` (a private attribute; the version is pinned in `uv.lock`).
+
+## 2026-10-19 — High-frequency events stay in memory
+`tmux.output` chunks and `nvim.cursor` moves are not written to SQLite. They
+are low value for history and high volume; snapshots and structured records
+are stored (redacted) instead.
+
+## 2026-10-19 — Silent auto-checks
+After a relevant command finishes or an exercise file is saved, non-executing
+checkers run quietly. A pass is announced and recorded; a fail is not recorded
+unless the learner asked with `/check` (no "failure" for work in progress).
+Checks that run learner code never run automatically.
+
+## 2026-10-19 — Shell announcement is best effort; sync recovers
+A shell started before the tutor listens skips its "session started" message
+without using a sequence number. After a real gap, shell status returns to
+`current` once events flow again, while the "history incomplete" note stays.
