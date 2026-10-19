@@ -783,8 +783,8 @@ class Engine:
             return True
         self._say(
             "Making a learning plan needs a real AI model, and the offline mock tutor cannot design one. "
-            "Connect a model with `mentor init` (Anthropic, OpenAI, or an OpenAI-compatible service such as "
-            "DeepSeek), then start a new session with `mentor start`.",
+            "Connect a model with `mentor init` (your ChatGPT plan, Anthropic, OpenAI, or an OpenAI-compatible "
+            "service such as DeepSeek), then start a new session with `mentor start`.",
             "plan",
         )
         return False
