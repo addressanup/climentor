@@ -90,7 +90,7 @@ async def test_ui_lesson_approval_and_cancel(ws: Path) -> None:
         await pilot.press("enter")
         await answer_modal(pilot, "y")  # create the step's files: yes, this time
         await pilot.pause(0.5)
-        assert list(ws.glob("plans/*/s1-*/hello.cpp"))
+        assert list(ws.glob("*/01-*/hello.cpp"))
         assert "New words" in texts(app)
         slow.behaviour.chunk_delay = 0.05
         app.query_one("#input").text = "/explain"  # type: ignore[attr-defined]

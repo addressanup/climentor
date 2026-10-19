@@ -7,12 +7,14 @@ import json
 import os
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 from . import __version__
 from .apikeys import ENV_VARS, delete_api_key, get_api_key, set_api_key
 from .config import Config, load_config
-from .db.store import open_store
+from .curriculum.plans import PlanInfo, PlanStore
+from .db.store import Store, open_store
 from .doctor import format_results, run_checks
 from .logs import setup_logging
 from .memory.notes import Notes
@@ -86,6 +88,56 @@ def _preflight(paths: AppPaths) -> bool:
     return True
 
 
+def choose_subject(
+    subjects: list[tuple[str, str]], ask: Callable[[str], str] = input, say: Callable[[str], None] = print
+) -> int | None:
+    """Ask which subject to continue. ``subjects`` is (title, details). Returns an index, or None for new."""
+    say("Your subjects:")
+    for i, (title, details) in enumerate(subjects, start=1):
+        say(f"  {i}. {title}  ({details})")
+    say("  n. Start a new subject")
+    answer = ask("Choose a number, or n for new [1]: ").strip().lower()
+    if answer in ("n", "new"):
+        return None
+    if not answer:
+        return 0
+    if answer.isdigit() and 1 <= int(answer) <= len(subjects):
+        return int(answer) - 1
+    say("Not a valid choice; starting a new subject.")
+    return None
+
+
+def _subject_details(plans: PlanStore, plan: PlanInfo) -> str:
+    done, total = plans.progress(plan.id)
+    used = _fmt(plan.last_used or plan.created_at)
+    return f"{done}/{total} steps, {plan.status}, last studied {used}, folder {plan.folder_name}/"
+
+
+def _resume_subject(paths: AppPaths, config: Config, store: Store, plan: PlanInfo, args: argparse.Namespace) -> int:
+    from .lifecycle import attach, create_workspace, make_tmux, repair_tutor, tmux_session_name
+
+    sessions = Sessions(store)
+    info = sessions.get(plan.session_id) if plan.session_id else None
+    if info is None:  # its old session was deleted: start a fresh one for this subject
+        sid = sessions.create(config.tutor.provider, config.provider_settings().model)
+        state = sessions.state(sid)
+        state.plan_id, state.phase = plan.id, "learning"
+        sessions.save_state(state)
+        PlanStore(store).touch(plan.id, sid)
+    else:
+        sid = info.id
+        sessions.reopen(sid)
+    if make_tmux(paths).has_session(tmux_session_name(sid)):
+        repair_tutor(paths, sid)
+    else:
+        ws = create_workspace(config, paths, sid, subject_folder=plan.folder_name)
+        sessions.touch(sid, tmux_session=ws.tmux_session)
+    print(f"Continuing “{plan.title}” (session {sid}).")
+    if args.detach:
+        return 0
+    return attach(paths, sid, nested=args.nested)
+
+
 def cmd_start(args: argparse.Namespace) -> int:
     from .lifecycle import attach, cleanup_stale_runtime, create_workspace
 
@@ -96,6 +148,23 @@ def cmd_start(args: argparse.Namespace) -> int:
     if not _require_init(config) or not _preflight(paths):
         return 1
     store = open_store(paths.db_file)
+    plans = PlanStore(store)
+    subjects = plans.subjects()
+    picked: PlanInfo | None = None
+    if getattr(args, "subject", None):
+        key = str(args.subject).lower()
+        if key.isdigit() and 1 <= int(key) <= len(subjects):
+            picked = subjects[int(key) - 1]
+        else:
+            picked = next((p for p in subjects if p.title.lower().startswith(key) or p.folder_name == key), None)
+            if picked is None:
+                print(f"No subject matches {args.subject!r}. See `mentor subjects`.")
+                return 1
+    elif subjects and not getattr(args, "new", False) and sys.stdin.isatty():
+        index = choose_subject([(p.title, _subject_details(plans, p)) for p in subjects])
+        picked = subjects[index] if index is not None else None
+    if picked is not None:
+        return _resume_subject(paths, config, store, picked, args)
     sessions = Sessions(store)
     settings = config.provider_settings()
     sid = sessions.create(config.tutor.provider, settings.model)
@@ -176,6 +245,22 @@ def cmd_stop(args: argparse.Namespace) -> int:
     sessions.end(info.id)
     cleanup_stale_runtime(paths, {s.id for s in sessions.list_sessions(500) if s.status == "active"})
     print(f"Session {info.id} {'stopped' if stopped else 'was not running'}. Learning history is kept.")
+    return 0
+
+
+def cmd_subjects(args: argparse.Namespace) -> int:
+    paths = _paths()
+    store = open_store(paths.db_file)
+    plans = PlanStore(store)
+    subjects = plans.subjects()
+    if not subjects:
+        print("No subjects yet. Run `mentor start` and tell the tutor what you want to learn.")
+        return 0
+    root = Path(_config(paths).workspace_root).expanduser()
+    for i, plan in enumerate(subjects, start=1):
+        print(f"{i}. {plan.title}  ({_subject_details(plans, plan)})")
+        print(f"   folder: {root / plan.folder_name}")
+    print("\nContinue one with `mentor start` (it asks) or `mentor start --subject <number>`.")
     return 0
 
 
@@ -412,6 +497,8 @@ def build_parser() -> argparse.ArgumentParser:
         s = sub.add_parser(name, help=text)
         if name == "start":
             s.add_argument("--provider", choices=PROVIDERS, help="override the configured provider for this session")
+            s.add_argument("--subject", help="continue a subject by number or name (see `mentor subjects`)")
+            s.add_argument("--new", action="store_true", help="start a new subject without asking")
         else:
             s.add_argument("session", nargs="?", help="session id or prefix (default: latest)")
         s.add_argument("--detach", action="store_true", help="create it but do not attach")
@@ -422,6 +509,9 @@ def build_parser() -> argparse.ArgumentParser:
     st.add_argument("session", nargs="?")
     st.add_argument("--force", action="store_true")
     st.set_defaults(func=cmd_stop)
+
+    sj = sub.add_parser("subjects", help="list your learning subjects and their folders")
+    sj.set_defaults(func=cmd_subjects)
 
     ss = sub.add_parser("sessions", help="list sessions")
     ss.add_argument("--limit", type=int, default=20)

@@ -52,6 +52,8 @@ uv run mentor start
 
 Inside the session, answer the tutor's question "What would you like to learn?"
 in the tutor pane (left). It proposes a plan; reply **yes** to start.
+Each subject gets its own folder and conversation. Next time, `mentor start`
+asks which subject to continue (or start a new one); `mentor subjects` lists them.
 Move between panes with **Ctrl+b** then an arrow key. Quit with **Ctrl+Q**.
 
 Learning plans need a real AI model (your own key). `uv run mentor demo`

@@ -124,3 +124,11 @@ from the model.
 A model-made plan is stored as `proposed` and becomes `active` only after the
 learner replies yes. One active plan at a time; others are archived and can be
 switched back with `/plan switch`.
+
+## 2026-10-19 — One folder and one session per subject
+Learner request. Each accepted plan (subject) gets a folder named from its
+title (unique, fixed at creation) and remembers the session that studies it.
+`mentor start` asks which subject to continue; the chosen one reopens its own
+session and conversation with the panes in its folder. A new session starts a
+new subject. `/plan switch` inside a session still works but shares that
+session's conversation.

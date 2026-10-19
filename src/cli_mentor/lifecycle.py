@@ -107,7 +107,13 @@ def tutor_command(session_id: str) -> str:
 
 
 def create_workspace(
-    config: Config, paths: AppPaths, session_id: str, *, width: int = 200, height: int = 50
+    config: Config,
+    paths: AppPaths,
+    session_id: str,
+    *,
+    width: int = 200,
+    height: int = 50,
+    subject_folder: str | None = None,
 ) -> WorkspaceInfo:
     tmux = make_tmux(paths)
     name = tmux_session_name(session_id)
@@ -116,6 +122,12 @@ def create_workspace(
     root = Path(config.workspace_root).expanduser()
     if not root.is_dir():
         raise RuntimeError(f"Practice folder {root} does not exist. Run `mentor init`.")
+    # Panes open in the subject's own folder (created inside the practice folder only).
+    start_dir = (
+        root / subject_folder if subject_folder and "/" not in subject_folder and subject_folder != ".." else root
+    )
+    start_dir.mkdir(parents=True, exist_ok=True)
+    start = str(start_dir)
     run_dir = ensure_private_dir(paths.session_runtime_dir(session_id))
     token_file = ensure_token(paths, session_id)
     sock = paths.socket_path(session_id)
@@ -149,7 +161,7 @@ def create_workspace(
             "-y",
             str(height),
             "-c",
-            str(root),
+            start,
             *_env_args(tutor_env),
             tutor_command(session_id),
         )
@@ -165,7 +177,7 @@ def create_workspace(
             "-t",
             tutor,
             "-c",
-            str(root),
+            start,
             *_env_args(editor_env),
             _without_secrets(nvim_cmd),
         )
@@ -179,7 +191,7 @@ def create_workspace(
             "-t",
             editor,
             "-c",
-            str(root),
+            start,
             *_env_args(shell_env),
             _without_secrets(f"{shlex.quote(zsh_bin)} -l"),
         )

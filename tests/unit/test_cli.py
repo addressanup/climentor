@@ -126,6 +126,7 @@ def test_commands_doc_matches_in_app_help() -> None:
         "resume",
         "stop",
         "sessions",
+        "subjects",
         "profile",
         "memory",
         "export",
@@ -184,3 +185,29 @@ def test_init_with_base_url_contacts_that_server(
     cfg = load_config(paths.config_file)
     assert cfg.providers.openai.base_url == "https://api.deepseek.com"
     assert cfg.providers.openai.model == "deepseek-v4-pro"
+
+
+def test_choose_subject_picker() -> None:
+    subjects = [("C++ from the very basics", "3/40 steps"), ("Rust", "1/12 steps")]
+    said: list[str] = []
+    assert cli.choose_subject(subjects, ask=lambda _p: "", say=said.append) == 0  # Enter = most recent
+    assert "  1. C++ from the very basics  (3/40 steps)" in said and "  n. Start a new subject" in said
+    assert cli.choose_subject(subjects, ask=lambda _p: "2", say=said.append) == 1
+    assert cli.choose_subject(subjects, ask=lambda _p: "n", say=said.append) is None
+    assert cli.choose_subject(subjects, ask=lambda _p: "9", say=said.append) is None
+
+
+def test_subjects_command(mentor_env: dict[str, str], tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    from cli_mentor.curriculum.plans import PlanOutline, PlanStore
+    from tests.plan_helpers import fixture
+
+    assert cli.main(["init", "--yes", "--provider", "mock", "--workspace", str(tmp_path / "w")]) == 0
+    assert cli.main(["subjects"]) == 0
+    assert "No subjects yet" in capsys.readouterr().out
+    store = open_store(AppPaths.from_env().db_file)
+    plans = PlanStore(store)
+    plans.activate(plans.create("learn C++", PlanOutline.model_validate(fixture()["plan"])).id)
+    assert cli.main(["subjects"]) == 0
+    out = capsys.readouterr().out
+    assert "1. C++ from the very basics" in out and str(tmp_path / "w" / "c-from-the-very-basics") in out
+    assert cli.main(["start", "--detach", "--subject", "nope"]) == 1

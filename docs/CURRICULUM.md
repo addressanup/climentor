@@ -16,8 +16,19 @@ designs a plan; trusted code checks your work.
    (`prepare_step`) using what the tutor knows about you so far. Then the
    usual order applies: new words and symbols explained → example →
    prediction → task → check → transfer question.
-5. **Next sessions.** "Welcome back. Next is step 7: … Type `/lesson` to
-   continue, or `/learn <topic>` to learn something else."
+5. **Next sessions.** `mentor start` lists your subjects (progress, last
+   studied, folder) and asks which one to continue, or `n` for a new one.
+   The chosen subject reopens its own session and conversation, with the
+   panes in its folder: "Welcome back. Next is step 7: …"
+
+## Subjects and folders
+
+Each accepted plan is a **subject** with its own folder in the practice
+folder, for example `~/cli-mentor-workspace/c-from-the-very-basics/`, and
+numbered step folders inside it (`01-hello-c/`, `02-variables-and-types/`).
+The folder name is fixed when the plan is made. `mentor subjects` lists them;
+`mentor start --subject 2` continues one without asking; `mentor start --new`
+starts a new one.
 
 Commands: `/learn <topic>`, `/plan`, `/plan accept`, `/plan skip`,
 `/plan list`, `/plan switch <id>`, `/lesson`, `/check [answer]`.

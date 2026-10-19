@@ -9,7 +9,8 @@ from the project folder.
 |---|---|
 | `mentor doctor [--json]` | Checks tools, versions, folders, and settings. Prints fixes. Installs nothing. |
 | `mentor init [--yes] [--provider mock\|anthropic\|openai] [--model ID] [--workspace PATH] [--base-url URL]` | Setup: practice folder (asks first), profile confirmation, observation approval, provider, key, model. |
-| `mentor start [--provider P] [--detach] [--nested]` | Starts a new session in the private tmux server and attaches. `--provider` overrides the config for this session only. |
+| `mentor start [--subject N\|NAME] [--new] [--provider P] [--detach] [--nested]` | If you have subjects, asks which one to continue (or a new one), then opens its session with the panes in that subject's folder. `--subject` picks without asking, `--new` starts a new subject. `--provider` overrides the config for this session only. |
+| `mentor subjects` | Lists your learning subjects, their progress, and their folders. |
 | `mentor resume [SESSION] [--detach] [--nested]` | Re-attaches. Restarts the tutor pane if it crashed. Rebuilds the panes if tmux was closed; learning state is kept. |
 | `mentor stop [SESSION] [--force]` | Closes a session's panes. Refuses while Neovim is open or a command is running, unless `--force`. |
 | `mentor sessions [--limit N]` | Lists sessions, whether their tmux session is alive, and the current exercise. |

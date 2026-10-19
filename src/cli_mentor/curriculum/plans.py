@@ -312,6 +312,13 @@ class PlanInfo:
     outline: PlanOutline
     current_step: str | None
     created_at: float
+    folder: str = ""
+    session_id: str | None = None
+    last_used: float | None = None
+
+    @property
+    def folder_name(self) -> str:
+        return self.folder or f"{slug(self.title)}-{self.id[:6]}"
 
 
 def slug(text: str, limit: int = 28) -> str:
@@ -336,6 +343,9 @@ class PlanStore:
             PlanOutline.model_validate_json(row["outline_json"]),
             row["current_step"],
             row["created_at"],
+            row["folder"] or "",
+            row["session_id"],
+            row["last_used"],
         )
 
     def _step(self, row: Any) -> StepInfo:
@@ -371,14 +381,37 @@ class PlanStore:
                     ),
                 )
 
-    def create(self, goal: str, outline: PlanOutline, provider: str = "", model: str = "") -> PlanInfo:
+    def _unique_folder(self, title: str) -> str:
+        base = slug(title, 40)
+        taken = {r[0] for r in self.store.conn.execute("SELECT folder FROM learning_plans WHERE folder IS NOT NULL")}
+        name, n = base, 2
+        while name in taken:
+            name, n = f"{base}-{n}", n + 1
+        return name
+
+    def create(
+        self, goal: str, outline: PlanOutline, provider: str = "", model: str = "", session_id: str | None = None
+    ) -> PlanInfo:
         plan_id = uuid.uuid4().hex
         now = time.time()
+        folder = self._unique_folder(outline.title)
         with self.store.tx() as conn:
             conn.execute(
                 "INSERT INTO learning_plans(id, goal, title, status, outline_json, provider, model, created_at, "
-                "updated_at) VALUES (?, ?, ?, 'proposed', ?, ?, ?, ?, ?)",
-                (plan_id, goal.strip()[:2000], outline.title, outline.model_dump_json(), provider, model, now, now),
+                "updated_at, folder, session_id, last_used) VALUES (?, ?, ?, 'proposed', ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    plan_id,
+                    goal.strip()[:2000],
+                    outline.title,
+                    outline.model_dump_json(),
+                    provider,
+                    model,
+                    now,
+                    now,
+                    folder,
+                    session_id,
+                    now,
+                ),
             )
             self._insert_steps(conn, plan_id, outline)
         plan = self.get(plan_id)
@@ -431,6 +464,19 @@ class PlanStore:
             "SELECT * FROM learning_plans WHERE status = 'active' ORDER BY updated_at DESC LIMIT 1"
         ).fetchone()
         return self._plan(row) if row else None
+
+    def touch(self, plan_id: str, session_id: str) -> None:
+        """Remember which session studies this subject, and when it was last used."""
+        self.store.conn.execute(
+            "UPDATE learning_plans SET session_id = ?, last_used = ? WHERE id = ?", (session_id, time.time(), plan_id)
+        )
+
+    def subjects(self) -> list[PlanInfo]:
+        """Accepted plans (subjects), most recently used first."""
+        rows = self.store.conn.execute(
+            "SELECT * FROM learning_plans WHERE status != 'proposed' ORDER BY COALESCE(last_used, updated_at) DESC"
+        ).fetchall()
+        return [self._plan(r) for r in rows]
 
     def list_plans(self) -> list[PlanInfo]:
         rows = self.store.conn.execute("SELECT * FROM learning_plans ORDER BY created_at DESC").fetchall()
@@ -518,7 +564,7 @@ def build_lesson(plan: PlanInfo, step: StepInfo, details: StepDetails) -> Lesson
         prediction=details.prediction,
         prediction_answer=details.prediction_answer,
         instructions=details.instructions,
-        workdir=f"plans/{slug(plan.title)}-{plan.id[:6]}/{step.step_id}-{slug(step.title, 24)}",
+        workdir=f"{plan.folder_name}/{step.position:02d}-{slug(step.title, 24)}",
         setup=[SetupFile(path=f.path, content=f.content) for f in details.starter_files],
         hints=[Hint(level=i + 1, text=text) for i, text in enumerate(details.hints)],
         solution=details.solution,

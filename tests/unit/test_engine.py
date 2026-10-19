@@ -453,15 +453,20 @@ async def test_later_sessions_offer_to_continue(ws: Path) -> None:
         assert attempt is not None and attempt.hints_used == 1
     finally:
         await eng2.stop()
-    # A brand-new session also offers to continue the saved plan.
+    # A brand-new session is a new subject; it mentions the saved ones and how to pick them.
     ui3 = HeadlessUi()
     eng3 = make_engine(ws, ui=ui3, provider=planning_mock())
     await eng3.start()
     try:
         welcome = ui3.last_turn("session_start")
-        assert welcome is not None and "Welcome back" in welcome.text and eng3.session.phase == "learning"
-        await commands.dispatch(eng3, "/learn Rust")
+        assert welcome is not None and "What would you like to learn?" in welcome.text
+        assert "You also have saved subjects: “C++ from the very basics”" in welcome.text
+        assert "mentor start" in welcome.text and eng3.session.phase == "ask_goal"
+        await eng3.learner_message("Rust")
         assert eng3.session.phase == "plan_review"
+        # The C++ subject still belongs to its own session (and conversation).
+        cpp = next(p for p in eng3.plans.list_plans() if p.goal == GOAL)
+        assert cpp.session_id == sid
     finally:
         await eng3.stop()
 

@@ -30,7 +30,7 @@ pytest-asyncio 1.4.0, mypy 2.4.0, ruff 0.17.0, pynvim 0.6.0.
 
 ## Tests actually run (latest)
 
-Command: `uv run pytest -m "not live"` → **163 passed, 2 deselected** (run 3
+Command: `uv run pytest -m "not live"` → **165 passed, 2 deselected** (run 3
 times in a row with the same result after the last fix).
 
 | Group | Count | What they use |
@@ -81,7 +81,8 @@ tmux sockets.
 ## Learning flow (current)
 Welcome asks what to learn → the model proposes a plan → learner accepts or revises → steps are prepared
 on demand and checked by the fixed check menu (real C/C++ compile-and-run supported) → later sessions offer
-to continue. Built-in lessons were removed by request. Tested with recorded plan answers (mock fixture);
+to continue. Each subject has its own folder and session; `mentor start` asks which to continue.
+Built-in lessons were removed by request. Tested with recorded plan answers (mock fixture);
 NOT yet tested against a real model (plan quality and tool-call reliability with DeepSeek are unknown).
 
 ## Known limits / not done

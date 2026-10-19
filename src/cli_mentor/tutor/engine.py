@@ -711,7 +711,7 @@ class Engine:
         outline = await self._ask_outline(Trigger.PLAN, goal, [])
         if outline is None:
             return None
-        plan = self.plans.create(goal, outline, self.provider.name, self.provider.model)
+        plan = self.plans.create(goal, outline, self.provider.name, self.provider.model, session_id=self.session_id)
         self.session.plan_id = plan.id
         self.session.phase = "plan_review"
         self._save_session()
@@ -750,6 +750,7 @@ class Engine:
             self.ui.note("There is no proposed plan. Tell me what you want to learn, or use `/learn <topic>`.")
             return
         plan = self.plans.activate(plan.id)
+        self.plans.touch(plan.id, self.session_id)
         self.session.phase = "learning"
         self._save_session()
         step = self.plans.current(plan)
@@ -873,6 +874,7 @@ class Engine:
             self.ui.note("No plan matches that id. See `/plan list`.", "warn")
             return
         plan = self.plans.activate(plan.id)
+        self.plans.touch(plan.id, self.session_id)
         self.session.plan_id = plan.id
         self.session.phase = "learning"
         self._save_session()
@@ -1092,9 +1094,22 @@ class Engine:
         self.ui.tutor_end(self.turn_counter, "complete")
         self.sessions.add_message(self.session_id, "tutor", text, trigger=trigger)
 
+    def _other_subjects_note(self) -> str:
+        others = self.plans.subjects()
+        if not others:
+            return ""
+        names = ", ".join(f"“{p.title}”" for p in others[:4])
+        return (
+            f"\n\nYou also have saved subjects: {names}. To continue one, quit with Ctrl+Q and run "
+            "`mentor start`, which lets you pick it (or use `/plan list` and `/plan switch <id>`)."
+        )
+
     async def greet(self) -> None:
-        plan = self.plans.active()
-        proposed = self.plans.get(self.session.plan_id) if self.session.plan_id else None
+        mine = self.plans.get(self.session.plan_id) if self.session.plan_id else None
+        proposed = mine if mine is not None and mine.status == "proposed" else None
+        plan = mine if mine is not None and mine.status != "proposed" else None
+        if plan is not None and plan.status == "archived":
+            plan = self.plans.activate(plan.id)  # this session's subject becomes the one being studied
         if proposed is not None and proposed.status == "proposed":
             self.session.phase = "plan_review"
             self._save_session()
@@ -1111,12 +1126,13 @@ class Engine:
                 "Welcome to your learning session! I am your CLI Mentor. You do the work in Neovim and the shell "
                 "on the right; I explain every new word and symbol, give small hints, and check your work.\n\n"
                 "**What would you like to learn?** For example: “C++ from the very basics to the most advanced "
-                "features”. I will turn it into a step-by-step plan for you."
+                "features”. I will turn it into a step-by-step plan for you." + self._other_subjects_note()
             )
             return
         self.session.plan_id = plan.id
         self.session.phase = "learning"
         self._save_session()
+        self.plans.touch(plan.id, self.session_id)
         done, total = self.plans.progress(plan.id)
         step = self.plans.current(plan)
         where = f"next is **step {step.position} of {total}: {step.title}**" if step else "every step is done"

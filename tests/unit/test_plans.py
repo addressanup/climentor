@@ -92,9 +92,17 @@ def test_plan_lifecycle(tmp_path: Path) -> None:
     assert plans.finish_step(plan.id, "s3") is None
     final = plans.get(plan.id)
     assert final is not None and final.status == "completed" and final.current_step is None
-    # A new active plan archives the old active one.
-    other = plans.activate(plans.create("Rust", outline).id)
+    # A new active plan archives the old active one; each subject gets its own folder.
+    other = plans.activate(plans.create("Rust", outline, session_id="sess-2").id)
     assert plans.active() == other
+    # The folder is fixed when the plan is first made (a revised title does not move your files).
+    assert final.folder == "c-from-the-very-basics" and other.folder == "c-from-the-very-basics-2"
+    third = plans.create("again", outline)
+    assert third.folder == "c-from-the-very-basics-3"
+    plans.touch(final.id, "sess-9")
+    subjects = plans.subjects()
+    assert subjects[0].id == final.id and subjects[0].session_id == "sess-9"
+    assert third.id not in [p.id for p in subjects]  # proposed plans are not subjects yet
 
 
 def test_build_lesson_derives_risk_and_paths(tmp_path: Path) -> None:
@@ -102,7 +110,7 @@ def test_build_lesson_derives_risk_and_paths(tmp_path: Path) -> None:
     lesson = lesson_for_step(store, 0)
     assert lesson.id.startswith("plan.p") and lesson.id.endswith(".s1")
     assert lesson.risk == "runs_learner_code"  # decided by trusted code from the checks
-    assert lesson.workdir.startswith("plans/c-from-the-very-basics-")
+    assert lesson.workdir == "c-from-the-very-basics/01-hello-c"
     assert lesson.hint(1) is not None and lesson.hint(3) is not None
     assert "`<<` — send" in lesson.explanation_markdown()
     assert PlanStore(store).lesson(lesson.id) == lesson

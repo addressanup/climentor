@@ -126,7 +126,7 @@ def tutor_messages(r: Rig, trigger: str) -> list[str]:
 
 
 def step_dir(r: Rig) -> Path:
-    found = sorted(r.ws.glob("plans/*/s1-*"))
+    found = sorted(r.ws.glob("*/01-*"))
     assert found, "step folder not created"
     return found[0]
 
