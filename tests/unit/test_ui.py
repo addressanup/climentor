@@ -6,10 +6,12 @@ import asyncio
 from pathlib import Path
 
 import pytest
+from textual.widgets import Markdown
 
 from cli_mentor.providers.mock import MockProvider
 from cli_mentor.tutor.engine import Engine
 from cli_mentor.ui.app import ChoiceScreen, Entry, MentorApp, PromptInput
+from cli_mentor.ui.widgets import Line
 from tests.engine_helpers import make_engine
 from tests.plan_helpers import planning_mock
 
@@ -109,6 +111,108 @@ async def test_ui_lesson_approval_and_cancel(ws: Path) -> None:
         await pilot.pause(0.3)
         assert "— cancelled — stopped by you" in texts(app)
         assert engines[0].inflight is not None and engines[0].inflight.task.done()
+
+
+class Idle:
+    """An engine that does nothing, so a test drives the pane by hand."""
+
+    async def start(self) -> None:
+        pass
+
+
+REPLY = """Good: words first.
+
+### One tiny table
+
+```
+ name  | born
+-------+------
+ Grace | 1906
+```
+
+- **data**: the facts. `Grace` is a fact.
+- **database**: an organised container of data.
+
+| word | means |
+|------|-------|
+| SQL  | the language |
+
+That is what **declarative** means: you state *what*, the machine works out *how*.
+"""
+
+
+async def test_ui_streams_a_long_reply_without_falling_behind() -> None:
+    """Redrawing the whole reply on every update queued up, so long replies fell behind and arrived late."""
+    reply = REPLY * 4
+    app = MentorApp(lambda ui: Idle())  # type: ignore[arg-type,return-value]
+    async with app.run_test(size=(80, 30)) as pilot:
+        app.tutor_begin(1, "lesson_intro", "openai · deepseek-flash")
+        md = app.turns[1].md
+        drawing = peak = draws = 0
+        append = md.append
+
+        async def counted(text: str) -> None:
+            nonlocal drawing, peak, draws
+            draws += 1
+            drawing += 1
+            peak = max(peak, drawing)
+            try:
+                await append(text)
+            finally:
+                drawing -= 1
+
+        md.append = counted  # type: ignore[assignment,method-assign]
+        pieces = [reply[i : i + 5] for i in range(0, len(reply), 5)]
+        for piece in pieces:
+            app.tutor_delta(1, piece)
+            await asyncio.sleep(0.004)
+        app.tutor_end(1, "complete")
+        for _ in range(40):
+            if md.caught_up and 1 not in app._dirty:
+                break
+            await pilot.pause(0.05)
+        assert md.caught_up and peak == 1  # one draw at a time, and all of it is on screen
+        assert draws < len(pieces)  # text that arrives between draws goes out together
+        full = Markdown(reply)
+        await app._log_view().mount(full)
+        await pilot.pause(0.2)
+        shape = [(type(b).__name__, b.source_range) for b in md.children]
+        assert shape == [(type(b).__name__, b.source_range) for b in full.children]  # same as drawing it whole
+
+
+async def test_ui_says_thinking_then_writing_until_the_reply_is_complete() -> None:
+    """Learners took a half-written reply for a finished one: nothing near the text said it was still coming."""
+    from tests.unit.test_ui_text import info
+
+    app = MentorApp(lambda ui: Idle())  # type: ignore[arg-type,return-value]
+    async with app.run_test(size=(80, 30)) as pilot:
+        live = app.query_one("#activity", Line)
+        box = app.query_one("#input", PromptInput)
+        assert not live.has_class("-on")
+        app.tutor_begin(1, "learner_message", "openai · deepseek-flash")
+        await pilot.pause(0.1)
+        assert live.has_class("-on") and "Thinking…" in str(live.render())  # before the first word
+        assert "still replying" in str(box.placeholder) and "thinking" in line(app, "#state")
+        app.tutor_delta(1, "Half of the ans")
+        await pilot.pause(0.2)
+        assert "Writing…" in str(live.render()) and "Esc to stop" in str(live.render())
+        assert list(app._log_view().children)[-1] is live  # right under the text so far
+        app.tutor_end(1, "complete")
+        await pilot.pause(0.1)
+        assert not live.has_class("-on") and "still replying" not in str(box.placeholder)
+        app.status(info(busy=True))  # preparing a step: the tutor works, but there is no reply to show yet
+        await pilot.pause(0.1)
+        assert live.has_class("-on") and "Thinking…" in str(live.render())
+        question = asyncio.ensure_future(app.ask("Send context to the model provider?", "", [("n", "No")]))
+        await pilot.pause(0.2)
+        assert not live.has_class("-on")  # waiting for your answer is not “thinking”
+        await pilot.press("n")
+        assert await question == "n"
+        await pilot.pause(0.1)
+        assert live.has_class("-on") and "Thinking…  0s" in str(live.render())  # the count starts again
+        app.status(info(busy=False))
+        await pilot.pause(0.1)
+        assert not live.has_class("-on")
 
 
 async def test_ui_quit_end_session_warns_about_unsaved(ws: Path) -> None:

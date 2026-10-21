@@ -32,7 +32,7 @@ from cli_mentor.providers.base import (
     merge_roles,
 )
 from cli_mentor.providers.mock import MockBehaviour, MockProvider
-from cli_mentor.providers.openai_provider import OpenAIProvider
+from cli_mentor.providers.openai_provider import THINKING_ROOM, OpenAIProvider
 
 FAKE_KEY = "sk-test-FAKEKEY-not-real-0123456789"
 TOOL = ToolSpec(
@@ -316,6 +316,40 @@ async def test_openai_compatible_base_url_uses_max_tokens() -> None:
     await collect(p, request())
     assert str(seen[0].url).startswith("http://localhost:9/v1")
     assert "max_tokens" in json.loads(seen[0].content)
+
+
+async def test_thinking_models_get_room_on_top_of_the_reply() -> None:
+    """DeepSeek's hidden thinking used the reply's own limit and cut replies off mid-sentence."""
+    thinking = sse(
+        [
+            (None, openai_chunk({"role": "assistant", "content": None, "reasoning_content": "Let me think"})),
+            (None, openai_chunk({"content": "Answer"}, "stop")),
+            (None, "[DONE]"),
+        ]
+    )
+    seen: list[httpx2.Request] = []
+
+    def handler(req: httpx2.Request) -> httpx2.Response:
+        seen.append(req)
+        return httpx2.Response(200, headers={"content-type": "text/event-stream"}, content=thinking)
+
+    def provider(base_url: str) -> OpenAIProvider:
+        settings = ProviderSettings(model="m", max_retries=0, base_url=base_url)
+        return OpenAIProvider(FAKE_KEY, settings, http_client=transport(handler))
+
+    def limit() -> int:
+        body = json.loads(seen[-1].content)
+        return int(body.get("max_tokens") or body["max_completion_tokens"])
+
+    for known in ("https://api.deepseek.com", ""):  # DeepSeek, and OpenAI itself
+        await collect(provider(known), request())
+        assert limit() == 200 + THINKING_ROOM
+    other = provider("http://localhost:9/v1")
+    events = await collect(other, request())
+    assert limit() == 200  # a server not known to think gets exactly what was asked for...
+    assert "".join(e.text for e in events if isinstance(e, TextDelta)) == "Answer"  # (thinking is not shown)
+    await collect(other, request())
+    assert limit() == 200 + THINKING_ROOM  # ...until one of its replies shows that it thinks
 
 
 @pytest.mark.parametrize(

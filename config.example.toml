@@ -32,7 +32,7 @@ max_retries = 2
 [providers.openai]
 model = ""
 base_url = ""                # set for OpenAI-compatible servers (unverified)
-max_output_tokens = 1024
+max_output_tokens = 1024     # replies get at least 3000; models that think get 8000 more for it
 max_context_tokens = 24000
 timeout_seconds = 60.0
 max_retries = 2

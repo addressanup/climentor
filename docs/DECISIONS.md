@@ -88,6 +88,8 @@ any mode starting with `n` as Normal mode.
 `Markdown` re-applies its constructor text when it mounts, which wiped fast
 replies that finished first. `LiveMarkdown` also sets Textual 8.x's
 `_initial_markdown` (a private attribute; the version is pinned in `uv.lock`).
+Replaced on 2026-10-21: `LiveMarkdown` now draws nothing until it is mounted,
+then appends whatever text it has (see that entry below).
 
 ## 2026-10-19 — High-frequency events stay in memory
 `tmux.output` chunks and `nvim.cursor` moves are not written to SQLite. They
@@ -198,3 +200,26 @@ refresh token would sign Codex out.
 - "Run my code for this session" is granted for the subject's folder, so it covers every step.
 - The conversation log uses Textual's anchoring: it follows new text, lets go when you scroll up, and
   follows again when you scroll to the end or send a message.
+
+## 2026-10-21 — Replies arrive whole, and the pane says when they are still coming
+The learner saw replies stop mid-sentence and could not tell a half-written reply from a finished one.
+- Cause 1: `deepseek-flash` thinks before answering (on by default, `reasoning_content` in the stream),
+  and the thinking uses the same output limit. Stored replies ended mid-sentence with status
+  "complete". The OpenAI-format provider now adds `THINKING_ROOM` (8000 tokens) on top of the reply's
+  own limit for servers known to think (DeepSeek, OpenAI itself) and for any server once a reply shows
+  thinking. It is a ceiling, so it costs nothing unless used. Thinking stays on (the model's default);
+  the pane now shows it instead. Unknown servers are not given the room up front, because some reject
+  a limit above their model's maximum.
+- Cause 2: the pane re-drew the whole reply every 80 ms, and the draws queued (Textual's
+  `Markdown.update` takes a lock). On a 6000-character reply the screen fell about 50 draws behind
+  and kept writing for 6 s after the model had finished. `LiveMarkdown` now uses `Markdown.append`,
+  one draw at a time, and the draw takes everything that arrived meanwhile.
+- A `:last-child` CSS rule made every draw re-style every block of the reply, so we dropped it; the
+  gaps now come from the blocks' own bottom margins.
+- A live line, always the last line of the conversation, says "Thinking…" (no words yet) or
+  "Writing…", with seconds and "Esc to stop". It shows for hidden turns too (preparing a step), and
+  not while a question dialog is open. The input box says "Mentor is still replying…".
+- A reply that runs out of room gets the status `cut_off` ("! cut short") and stays in the history, so
+  "please finish that" works.
+- The reply timeout now restarts with every streamed event: only a stalled reply times out, never a
+  long one that is still arriving.

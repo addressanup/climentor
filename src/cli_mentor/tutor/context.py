@@ -329,7 +329,7 @@ class ContextAssembler:
         )
         history: list[ChatMessage] = []
         for role, content, status in self.sessions.recent_messages(t.session_id, limit=12):
-            if role == "note" or status not in ("complete", "stale") or not content.strip():
+            if role == "note" or status not in ("complete", "stale", "cut_off") or not content.strip():
                 continue  # some APIs reject empty messages
             history.append(ChatMessage("user" if role == "learner" else "assistant", content))
         budget = Budget()

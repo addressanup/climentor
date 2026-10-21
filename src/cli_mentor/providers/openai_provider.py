@@ -10,6 +10,7 @@ import json
 import logging
 from collections.abc import AsyncIterator
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx2
 import openai
@@ -28,6 +29,11 @@ from .base import (
 )
 
 log = logging.getLogger(__name__)
+
+# Models that think before answering (DeepSeek, OpenAI's reasoning models) spend the same output limit on
+# hidden thinking, which cut replies off mid-sentence. This is extra room on top of the reply's own limit;
+# it is a ceiling, so it costs nothing unless the model uses it.
+THINKING_ROOM = 8000
 
 
 def _retry_after(exc: openai.APIStatusError) -> float | None:
@@ -73,6 +79,9 @@ class OpenAIProvider:
         self.settings = settings
         # Name the endpoint in errors, so a key sent to the wrong service is obvious.
         self.endpoint = f"The server at {settings.base_url}" if settings.base_url else "OpenAI (api.openai.com)"
+        # Known to think by default; any other server is treated as thinking once a reply shows it does.
+        host = urlparse(settings.base_url).hostname or ""
+        self.thinks = not settings.base_url or host == "deepseek.com" or host.endswith(".deepseek.com")
         self.client = openai.AsyncOpenAI(
             api_key=api_key,
             base_url=settings.base_url or None,
@@ -92,10 +101,8 @@ class OpenAIProvider:
         }
         # Official OpenAI uses max_completion_tokens; many compatible servers
         # only understand max_tokens.
-        if self.settings.base_url:
-            kwargs["max_tokens"] = request.max_output_tokens
-        else:
-            kwargs["max_completion_tokens"] = request.max_output_tokens
+        limit = request.max_output_tokens + (THINKING_ROOM if self.thinks else 0)
+        kwargs["max_tokens" if self.settings.base_url else "max_completion_tokens"] = limit
         if request.tools:
             kwargs["tools"] = [
                 {
@@ -118,8 +125,13 @@ class OpenAIProvider:
                 async for chunk in stream:
                     if chunk.usage is not None:
                         usage = Usage(chunk.usage.prompt_tokens, chunk.usage.completion_tokens, False)
+                        details = chunk.usage.completion_tokens_details
+                        if details is not None and details.reasoning_tokens:
+                            self.thinks = True
                     for choice in chunk.choices:
                         delta = choice.delta
+                        if getattr(delta, "reasoning_content", None):  # DeepSeek streams its thinking here
+                            self.thinks = True
                         if delta.content:
                             text_parts.append(delta.content)
                             yield TextDelta(delta.content)

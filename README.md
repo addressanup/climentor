@@ -61,6 +61,8 @@ Your first session starts with a short tour of the screen. Then the tutor asks
 "What would you like to learn?" in the tutor pane (left). It proposes a plan;
 reply **yes** to start. The header always shows the subject, the step you are
 on, and where you are in it (learn, try, check). `/tour` shows the tour again.
+While the tutor works, the last line says "Thinking…" or "Writing…" with the
+seconds so far; when that line goes, the reply is complete. Esc stops a reply.
 Each subject gets its own folder and conversation. Next time, `mentor start`
 asks which subject to continue (or start a new one); `mentor subjects` lists them.
 Move between panes with **Ctrl+b** then an arrow key. Quit with **Ctrl+Q**.

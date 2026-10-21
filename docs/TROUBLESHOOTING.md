@@ -17,6 +17,8 @@ Start with `mentor doctor`. It lists each problem with a fix.
 | "No API key for anthropic/openai" | Key not in env or Keychain | `mentor key set anthropic` (or `openai`), or export the env var |
 | "The provider rejected the request" | Wrong model id | `mentor init` and pick a model from the list, or `/model list` |
 | "rate limit reached" | Provider asked us to slow down | Wait the suggested time; retries are already bounded |
+| A reply ends with "! cut short" | The reply ran out of room (models that think use part of the limit on hidden thinking) | Say "please finish that". Thinking models already get 8000 extra tokens; to give more, raise `max_output_tokens` |
+| "Thinking…" stays for a long time | The model is still working (preparing a step can take 20–30 s) | Wait while the seconds count up, or press Esc to stop it |
 | "You are not signed in to ChatGPT" | No sign-in yet, or you ran `mentor logout` | `mentor login` |
 | "Your ChatGPT sign-in has expired" | Not used for about 30 days, or disconnected in ChatGPT settings | `mentor login` |
 | "did not allow CLI Mentor to use your ChatGPT plan" | The plan permission was not ticked during sign-in | `mentor login` again and allow it, or use an API key |

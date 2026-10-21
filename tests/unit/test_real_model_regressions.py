@@ -160,8 +160,11 @@ async def test_cut_off_replies_are_labelled_and_replies_get_room(ws: Path) -> No
         await eng.skip_prediction()
         await eng.hint()
         turn = ui.last_turn("hint")
-        assert turn is not None and "cut short" in turn.note
+        assert turn is not None and turn.status == "cut_off" and "ran out of room" in turn.note
         assert all(r.max_output_tokens >= MIN_REPLY_TOKENS for r in mock.requests)
+        await eng.learner_message("please finish that hint you were giving me")
+        history = [m.content for m in mock.requests[-1].messages]
+        assert "Look at line" in history  # the model sees what it already wrote, so it can finish it
     finally:
         await eng.stop()
 

@@ -1596,8 +1596,11 @@ class Engine:
                 tools=tools if tools is not None else actions.TOOLS,
                 meta=meta,
             )
-            async with asyncio.timeout(settings.timeout_seconds * (4 if tools else 2) + 5):
+            idle = settings.timeout_seconds * (4 if tools else 2) + 5
+            # Restarted by every event: only a stalled reply times out, never a long one still arriving.
+            async with asyncio.timeout(idle) as deadline:
                 async for event in self.provider.stream(request):
+                    deadline.reschedule(asyncio.get_running_loop().time() + idle)
                     if isinstance(event, TextDelta):
                         text_parts.append(event.text)
                         if visible:
@@ -1614,9 +1617,10 @@ class Engine:
                             event.estimated,
                         )
                     elif isinstance(event, Done) and event.stop_reason in CUT_OFF:
-                        note = "This reply hit the length limit and was cut short. Ask “can you finish that?”"
+                        status = "cut_off"
+                        note = "it ran out of room. Say “please finish that” for the rest."
             s = assess(trigger, ctx.revision, self.state)
-            if trigger in SOLICITED and s.material and trigger not in NO_STALE_NOTE:
+            if status == "complete" and trigger in SOLICITED and s.material and trigger not in NO_STALE_NOTE:
                 status = "stale"
                 note = f"Heads up: {s.reason}, so this answer may be out of date. Ask again for a fresh look."
         except asyncio.CancelledError:

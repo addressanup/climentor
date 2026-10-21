@@ -4,7 +4,14 @@ from __future__ import annotations
 
 from cli_mentor.lifecycle import tmux_conf
 from cli_mentor.tutor.ui_protocol import StatusInfo
-from cli_mentor.ui.app import header_segments, input_hints, stage_segments, state_segments, tutor_label
+from cli_mentor.ui.app import (
+    activity_segments,
+    header_segments,
+    input_hints,
+    stage_segments,
+    state_segments,
+    tutor_label,
+)
 from cli_mentor.ui.theme import terminal_is_light
 
 
@@ -62,20 +69,23 @@ def test_input_hints_say_what_to_type_next() -> None:
 
 
 def test_state_words_and_sync_problems() -> None:
-    assert words(state_segments(info(), busy=False, frame=0)) == "● observing · deepseek-chat"
-    paused = words(state_segments(info(observation="paused", mock=True), busy=True, frame=3))
-    assert "writing" in paused and "‖ paused" in paused and "offline mock" in paused
+    assert words(state_segments(info(), activity=None, frame=0)) == "● observing · deepseek-chat"
+    paused = words(state_segments(info(observation="paused", mock=True), activity="thinking", frame=3))
+    assert "thinking" in paused and "‖ paused" in paused and "offline mock" in paused
     broken = info(sources={"term": "current", "shell": "none", "nvim": "disconnected"}, mode="practice")
-    assert (
-        words(state_segments(broken, False, 0)) == "● observing · Neovim disconnected · practice mode · deepseek-chat"
-    )
+    assert words(state_segments(broken, None, 0)) == "● observing · Neovim disconnected · practice mode · deepseek-chat"
+
+
+def test_activity_line_says_what_the_tutor_is_doing_and_for_how_long() -> None:
+    assert words(activity_segments("thinking", 4.9, 0)) == "⠋ Thinking…  4s · Esc to stop"
+    assert words(activity_segments("writing", 65, 1)) == "⠙ Writing…  1m 05s · Esc to stop"
 
 
 def test_tutor_label_names_the_source_honestly() -> None:
     assert tutor_label("session_start", "CLI Mentor").plain == "Mentor"
     assert tutor_label("hint", "openai · deepseek-chat").plain == "Mentor · hint · openai · deepseek-chat"
-    mock = tutor_label("lesson_intro", "MOCK TUTOR (offline, deterministic, not an AI)", "streaming").plain
-    assert mock == "Mentor · lesson · offline mock, not an AI · writing…"
+    mock = tutor_label("lesson_intro", "MOCK TUTOR (offline, deterministic, not an AI)").plain
+    assert mock == "Mentor · lesson · offline mock, not an AI"
 
 
 def test_light_or_dark_terminal_guess() -> None:

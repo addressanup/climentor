@@ -1,6 +1,6 @@
 # Status and handoff
 
-Last updated: 2026-10-19
+Last updated: 2026-10-21
 
 ## Where things stand
 
@@ -30,12 +30,12 @@ pytest-asyncio 1.4.0, mypy 2.4.0, ruff 0.17.0, pynvim 0.6.0.
 
 ## Tests actually run (latest)
 
-Command: `uv run pytest -m "not live"` → **220 passed, 2 deselected** (after
-the real-model test fixes below).
+Command: `uv run pytest -m "not live"` → **224 passed, 2 deselected** (after
+the reply streaming fixes below).
 
 | Group | Count | What they use |
 |---|---|---|
-| `tests/unit` | 201 | Pure logic, real SQLite, real IPC socket, real Python subprocesses, Textual Pilot (tutor pane and full-screen setup), real SDK parsing via `httpx2.MockTransport`, ChatGPT sign-in against a fake OpenAI server with a real local return page |
+| `tests/unit` | 205 | Pure logic, real SQLite, real IPC socket, real Python subprocesses, Textual Pilot (tutor pane and full-screen setup), real SDK parsing via `httpx2.MockTransport`, ChatGPT sign-in against a fake OpenAI server with a real local return page |
 | `tests/integration` | 17 | Real tmux (private sockets), real zsh with the hooks, real headless Neovim with the plugin |
 | `tests/e2e` | 2 | The real `mentor` command, tmux, zsh, Neovim, and the Textual tutor pane, mock provider |
 | `tests/live` | 2 | **Not run** (skipped: needs your API key and model id) |
@@ -135,6 +135,32 @@ Found and fixed (each has a regression test in `tests/unit/test_real_model_regre
 
 Still not tested with a real model: plan revision, the no-check AI review, hints at levels 2–3, later
 modules, other languages, the ChatGPT plan.
+
+## Broken replies and no sign of progress (2026-10-21)
+Reported by the learner: replies stopped part way, and nothing showed whether the tutor was still
+working, so a half-written reply looked finished. Found and fixed:
+- `deepseek-flash` thinks before it answers, and the thinking used the reply's limit. The learner's
+  stored replies ended mid-sentence ("### Two questions for") marked "complete". A direct DeepSeek
+  call confirmed it: 169 thinking tokens, then the answer stopped at the limit (`finish_reason: length`).
+  Thinking models now get 8000 tokens of room on top of the reply.
+- The pane re-drew the whole reply on every update, and the draws queued. Measured on a stored
+  6000-character reply streamed at model speed: about 50 draws behind, still writing 6 s after the
+  model finished. Now it adds only new text, one draw at a time: never more than 9 characters behind,
+  done within 0.15 s, and the same blocks as drawing the whole reply at once. A CSS rule that
+  re-styled the whole reply on each draw was removed (before: 10000 characters took 66 s against an
+  ideal 38 s; after: 8000 characters took 35 s against an ideal 30 s).
+- A live "Thinking… 12s · Esc to stop" / "Writing…" line under the conversation, also while a step is
+  being prepared; the input box says "Mentor is still replying…". A reply that still runs out of room
+  says "! cut short" and stays in the history, so "please finish that" works.
+- The reply timeout restarts with each streamed event, so a long reply that is still arriving never
+  times out.
+- Checked live with DeepSeek in a private tmux session (throwaway folders): a 5-step SQL plan, step 1
+  prepared (23 s of "Thinking…"), its intro (2508 characters) and two more replies (3008 and 1216
+  characters), all complete; "Thinking…" then "Writing…" then gone, each time. Regression tests:
+  `test_thinking_models_get_room_on_top_of_the_reply`, `test_ui_streams_a_long_reply_without_falling_behind`,
+  `test_ui_says_thinking_then_writing_until_the_reply_is_complete`, and the cut-off test.
+- Seen during that run, not fixed yet: a request like "Before I predict: explain …" (no question mark)
+  was taken as the prediction, so the step moved on while the tutor asked for the prediction again.
 
 ## ChatGPT plan (current)
 - "Continue with ChatGPT" in `mentor init`, plus `mentor login` / `mentor logout [--forget]`. Uses OpenAI's

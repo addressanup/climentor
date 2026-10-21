@@ -4,6 +4,9 @@
 - A header shows the subject, the current step, and where you are in it
   (learn, try, check). The line under the header fills up as steps get done.
 - Tutor replies stream in as Markdown (readable code blocks).
+- While the tutor works, a live line under the conversation says “Thinking…”
+  (no words yet) or “Writing…”, with the time so far. It goes when the reply
+  is complete, so a half-written reply never looks finished.
 - Multiline input: Enter sends, Ctrl+J or Alt+Enter adds a new line. The grey
   text in the empty box says what you can type next.
 - Esc cancels a reply. Ctrl+Q (or /quit) opens the quit menu.
@@ -15,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import time
 from collections.abc import Awaitable, Callable
 from typing import ClassVar, TypeVar
 
@@ -59,6 +63,7 @@ STATUS_WORDS = {
     "withdrawn": ("—", "withdrawn", "dim"),
     "superseded": ("—", "replaced", "dim"),
     "stale": ("!", "may be out of date", "$warning"),
+    "cut_off": ("!", "cut short", "$warning"),
     "error": ("✗", "error", "$error"),
 }
 STAGES = (("learn", "explain"), ("try", "attempt"), ("check", "verified"))
@@ -134,11 +139,11 @@ def input_hints(info: StatusInfo | None) -> tuple[str, str]:
     return "Say “next” to start this step, or ask a question", f"“next” to start · “show the plan” · {quit_}"
 
 
-def state_segments(info: StatusInfo | None, busy: bool, frame: int) -> list[Segment]:
-    """Bottom-right status: writing, observation, sync problems, model. Words first, colour second."""
+def state_segments(info: StatusInfo | None, activity: str | None, frame: int) -> list[Segment]:
+    """Bottom-right status: thinking or writing, observation, sync problems, model. Words first, colour second."""
     out: list[Segment] = []
-    if busy:
-        out += [(f"{SPINNER[frame % len(SPINNER)]} writing", "$accent"), ("  ", "")]
+    if activity:
+        out += [(f"{SPINNER[frame % len(SPINNER)]} {activity}", "$accent"), ("  ", "")]
     if info is None:
         return out
     style = {"on": "$success", "paused": "$warning"}.get(info.observation, "dim")
@@ -151,12 +156,22 @@ def state_segments(info: StatusInfo | None, busy: bool, frame: int) -> list[Segm
     return out
 
 
-def tutor_label(trigger: str, label: str, status: str | None = None) -> Content:
+def activity_segments(activity: str, seconds: float, frame: int) -> list[Segment]:
+    """“⠹ Thinking… 12s · Esc to stop”: the live line under a reply that is still on its way."""
+    s = int(seconds)
+    took = f"{s // 60}m {s % 60:02d}s" if s >= 60 else f"{s}s"
+    return [
+        (f"{SPINNER[frame % len(SPINNER)]} {activity.capitalize()}…", "$accent"),
+        (f"  {took} · Esc to stop", "dim"),
+    ]
+
+
+def tutor_label(trigger: str, label: str) -> Content:
     """“Mentor · hint · deepseek-chat”: who spoke, why, and which model wrote it."""
     parts: list[Segment] = [("Mentor", "bold $accent")]
     why = TRIGGER_WORDS.get(trigger, "")
     source = "offline mock, not an AI" if label == MOCK_LABEL else ("" if label == "CLI Mentor" else label)
-    for word in (why, source, "writing…" if status == "streaming" else ""):
+    for word in (why, source):
         if word:
             parts += [(" · ", "dim"), (word, "dim")]
     return Content.assemble(*parts)
@@ -249,38 +264,56 @@ class ChoiceScreen(ModalScreen[str]):
 
 
 class LiveMarkdown(Markdown):
-    """Markdown that keeps the newest text even if it changes before mounting.
+    """Markdown that streams: new text is added at the end instead of redrawing the whole reply.
 
-    (Markdown re-applies its constructor text on mount, which would otherwise
-    wipe a fast reply that finished before the widget was mounted.)
+    Redrawing everything on every update queued up faster than it drew, so a long
+    reply fell behind the model and kept arriving after it had finished. Now one
+    draw runs at a time, it adds only what is new, and text that arrives meanwhile
+    goes out with the next draw.
     """
 
     def __init__(self, text: str) -> None:
         super().__init__(text)
-        self.latest = text
+        self.latest = text  # the newest text; the screen catches up with it
+        self._drawing = False
+
+    @property
+    def caught_up(self) -> bool:
+        return self.is_mounted and not self._drawing and self.source == self.latest
 
     def set_text(self, text: str) -> None:
         self.latest = text
-        # Markdown applies ``_initial_markdown`` when it mounts (Textual 8.x).
-        self._initial_markdown = text
-        if self.is_mounted:
-            self.update(text)
-        else:
-            self.call_after_refresh(self._sync)
+        self.draw()
 
-    def _sync(self) -> None:
-        if self.source != self.latest:
-            self.update(self.latest)
+    def draw(self) -> None:
+        """Bring the screen up to date. Waits until mounted; while a draw runs, that draw picks up the rest."""
+        if self.is_mounted and not self._drawing and self.source != self.latest:
+            self._drawing = True
+            self.run_worker(self._draw(), group="draw")
+
+    async def _draw(self) -> None:
+        try:
+            while self.source != self.latest:
+                shown, text = self.source, self.latest
+                if not text.startswith(shown):  # replaced rather than extended: start again
+                    await self.update("")
+                    shown = ""
+                await self.append(text[len(shown) :])
+        finally:
+            self._drawing = False
 
 
 class Entry(Vertical):
     """One item in the conversation: a tutor reply, your message, or a short note."""
 
     DEFAULT_CSS = """
-    Entry { height: auto; margin: 0 0 1 0; }
+    /* Every Markdown block already leaves one blank line under it, so only your message needs a gap.
+       (A :last-child rule to remove that line instead made each streamed word re-style the whole reply.) */
+    Entry { height: auto; }
+    Entry.learner { margin-bottom: 1; }
     Entry > .label { height: 1; }
     Entry > .meta { height: auto; display: none; }
-    Entry > .meta.-shown { display: block; }
+    Entry > .meta.-shown { display: block; margin-bottom: 1; }
     Entry > Horizontal { height: auto; }
     Entry .glyph { width: 2; text-style: bold; }
     Entry .body { width: 1fr; }
@@ -335,12 +368,13 @@ class MentorApp(App[str]):
         scrollbar-color: $mentor-rule; scrollbar-color-hover: $accent; scrollbar-color-active: $accent;
     }
     #log Markdown { padding: 0; margin: 0; }
-    #log Markdown > MarkdownBlock:last-child { margin-bottom: 0; }
     #log MarkdownH1, #log MarkdownH2, #log MarkdownH3, #log MarkdownH4 { content-align: left top; margin: 0 0 1 0; }
     #log MarkdownFence { border-left: solid $mentor-rule; margin: 0 0 1 0; }
     #log MarkdownFence > Label { padding: 0 1; }
     #log MarkdownBlockQuote { border-left: outer $accent; background: transparent; }
     #log MarkdownBlock > .code_inline { color: $mentor-code; text-style: bold; background: transparent; }
+    #activity { height: 1; display: none; text-wrap: nowrap; text-overflow: ellipsis; }
+    #activity.-on { display: block; }
     #input {
         height: auto; min-height: 3; max-height: 10; margin: 0 1;
         border: round $border-blurred; background: $background;
@@ -374,11 +408,13 @@ class MentorApp(App[str]):
         self.on_detach = on_detach
         self.startup_notes = startup_notes or []
         self.engine: Engine | None = None
-        self.turns: dict[int, tuple[Entry, list[str], str, str]] = {}  # entry, parts, trigger, label
-        self._dirty: set[int] = set()
+        self.turns: dict[int, Entry] = {}
+        self._dirty: set[int] = set()  # turns whose text is not all on screen yet
         self._streaming: set[int] = set()
         self._frame = 0
         self._keys = ""
+        self._placeholder = ""
+        self._working_since: float | None = None  # when the current “Thinking…” / “Writing…” began
         self._last_status: StatusInfo | None = None
         self.register_theme(mentor_theme(terminal_is_light() if light is None else light))
         self.theme = "cli-mentor"
@@ -393,7 +429,8 @@ class MentorApp(App[str]):
                 yield Line(id="step")
                 yield Line(id="stages")
         yield ProgressRule(id="rule")
-        yield VerticalScroll(id="log")
+        with VerticalScroll(id="log"):
+            yield Line(id="activity")  # always the last line of the conversation
         yield PromptInput(id="input", soft_wrap=True, show_line_numbers=False)
         with Horizontal(id="bar"):
             yield Line(id="keys")
@@ -426,52 +463,63 @@ class MentorApp(App[str]):
         return self._main("#log", VerticalScroll)
 
     def _append(self, entry: Entry) -> None:
-        self._log_view().mount(entry)  # the anchored log follows new text unless you scrolled up
+        # Above the activity line; the anchored log follows new text unless you scrolled up.
+        self._log_view().mount(entry, before=self._main("#activity", Line))
 
     def tutor_begin(self, turn_id: int, trigger: str, label: str) -> None:
-        entry = Entry("tutor", "", label=tutor_label(trigger, label, "streaming"))
-        self.turns[turn_id] = (entry, [], trigger, label)
+        entry = Entry("tutor", "", label=tutor_label(trigger, label))
+        self.turns[turn_id] = entry
         self._streaming.add(turn_id)
         self._append(entry)
+        with contextlib.suppress(NoMatches):
+            self._show_state()  # “Thinking…” at once, not on the next tick
 
     def tutor_delta(self, turn_id: int, text: str) -> None:
         if turn_id in self.turns:
-            self.turns[turn_id][1].append(text)
+            self.turns[turn_id].md.latest += text
             self._dirty.add(turn_id)
 
     def tutor_end(self, turn_id: int, status: str, note: str = "") -> None:
         self._streaming.discard(turn_id)
-        if turn_id not in self.turns:
+        entry = self.turns.get(turn_id)
+        if entry is None:
             return
-        entry, parts, trigger, label = self.turns[turn_id]
-        if status == "complete" and not "".join(parts).strip() and not note:
+        text = entry.md.latest
+        if status == "complete" and not text.strip() and not note:
             entry.remove()  # the tutor only took an action (such as running the check); nothing to read
             del self.turns[turn_id]
             self._dirty.discard(turn_id)
-            return
-        entry.label.update(tutor_label(trigger, label))
-        glyph, words, style = STATUS_WORDS.get(status, ("", "", ""))
-        if words:
-            entry.set_meta(Content.assemble((f"{glyph} {words}", style), (f" — {note}" if note else "", style)))
-        elif note:
-            entry.set_meta(Content.assemble((note, "dim")))
-        text = "".join(parts)
-        entry.md.set_text(text or ("_(stopped before any text)_" if words else "_(no text)_"))
-        self._dirty.discard(turn_id)
+        else:
+            glyph, words, style = STATUS_WORDS.get(status, ("", "", ""))
+            if words:
+                entry.set_meta(Content.assemble((f"{glyph} {words}", style), (f" — {note}" if note else "", style)))
+            elif note:
+                entry.set_meta(Content.assemble((note, "dim")))
+            entry.md.set_text(text or ("_(stopped before any text)_" if words else "_(no text)_"))
+            self._dirty.add(turn_id)  # the tick keeps drawing until all of it is on screen
+        with contextlib.suppress(NoMatches):
+            self._show_state()
 
     def _tick(self) -> None:
         for turn_id in list(self._dirty):
-            entry, parts, _trigger, _label = self.turns[turn_id]
-            entry.md.set_text("".join(parts))
-        self._dirty.clear()
-        if self._busy:
+            md = self.turns[turn_id].md
+            md.draw()
+            if md.caught_up:
+                self._dirty.discard(turn_id)
+        if self._working_since is not None or self._activity() is not None:
             self._frame += 1
             with contextlib.suppress(NoMatches):  # the screen is gone while the app closes
                 self._show_state()
 
-    @property
-    def _busy(self) -> bool:
-        return bool(self._streaming) or bool(self._last_status and self._last_status.busy)
+    def _activity(self) -> str | None:
+        """“thinking” until the reply's first words, then “writing”; None when the tutor is not working.
+
+        Also None while a question is open: then the tutor waits for you, and the count starts again after.
+        """
+        if len(self.screen_stack) > 1 or not (self._streaming or (self._last_status and self._last_status.busy)):
+            return None
+        newest = max(self._streaming, default=None)
+        return "writing" if newest is not None and self.turns[newest].md.latest.strip() else "thinking"
 
     def note(self, text: str, kind: str = "info") -> None:
         self._append(Entry("note", text, note=kind))
@@ -490,14 +538,27 @@ class MentorApp(App[str]):
         rule.total = info.steps if info is not None and learning else 0
         rule.done = info.done if info is not None else 0
         rule.current = (info.step or 0) if info is not None else 0
-        placeholder, self._keys = input_hints(info)
-        self._main("#input", PromptInput).placeholder = placeholder
+        self._placeholder, self._keys = input_hints(info)
         self._show_state()
 
     def _show_state(self) -> None:
-        keys = "Esc stop the reply · " + self._keys if self._busy else self._keys
+        """The parts that change while the tutor works: the live line, the status, the key and input hints."""
+        activity = self._activity()
+        if activity is None:
+            self._working_since = None
+        elif self._working_since is None:
+            self._working_since = time.monotonic()
+        keys = "Esc stop the reply · " + self._keys if activity else self._keys
         self._main("#keys", Line).show([(keys, "")])
-        self._main("#state", Line).show(state_segments(self._last_status, self._busy, self._frame))
+        self._main("#state", Line).show(state_segments(self._last_status, activity, self._frame))
+        live = self._main("#activity", Line)
+        live.set_class(activity is not None, "-on")
+        if activity is not None and self._working_since is not None:
+            live.show(activity_segments(activity, time.monotonic() - self._working_since, self._frame))
+        box = self._main("#input", PromptInput)
+        placeholder = "Mentor is still replying…" if activity else self._placeholder
+        if box.placeholder != placeholder:
+            box.placeholder = placeholder
 
     async def ask(self, title: str, body: str, choices: list[tuple[str, str]]) -> str:
         future: asyncio.Future[str] = asyncio.get_running_loop().create_future()
