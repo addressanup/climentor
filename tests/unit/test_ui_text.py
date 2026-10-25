@@ -8,7 +8,6 @@ from cli_mentor.ui.app import (
     activity_segments,
     header_segments,
     input_hints,
-    stage_segments,
     state_segments,
     tutor_label,
 )
@@ -46,22 +45,19 @@ def test_header_follows_the_learning_flow() -> None:
     learning = info(phase="learning", subject="Rust", steps=12, step=3, done=2, step_title="Borrowing")
     subject, where, step, stages = header_segments(learning)
     assert (words(subject), words(where)) == ("Rust", "step 3 of 12")
-    assert words(step) == "Borrowing  · not started" and words(stages) == "○ learn  ○ try  ○ check"
+    assert words(step) == "Borrowing  · not started" and stages == []
     attempt = header_segments(info(phase="learning", subject="Rust", steps=12, step=3, step_stage="attempt"))
-    assert words(attempt[3]) == "✓ learn  ● try  ○ check"
+    assert attempt[3] == []
     done = header_segments(info(phase="learning", subject="Rust", steps=12, done=12))
     assert words(done[2]) == "Every step is done." and words(done[3]) == "✓ complete"
-
-
-def test_stage_marks_use_shapes_not_only_colour() -> None:
-    assert [text for text, _ in stage_segments("explain") if text.strip()] == ["● learn", "○ try", "○ check"]
 
 
 def test_input_hints_say_what_to_type_next() -> None:
     assert "What do you want to learn?" in input_hints(info())[0]
     assert input_hints(info(phase="plan_review", subject="x"))[0].startswith("Say yes")
     learning = {"phase": "learning", "subject": "x", "steps": 3, "step": 1}
-    assert "prediction" in input_hints(info(**learning, step_stage="explain"))[0]
+    assert "own words" in input_hints(info(**learning, step_stage="explain"))[0]
+    assert "own words" in input_hints(info(**learning, step_stage="reflect"))[0]
     assert "Tell me when you are done" in input_hints(info(**learning, step_stage="attempt"))[0]
     assert "“next”" in input_hints(info(**learning))[0]
     for state in (info(), info(phase="plan_review", subject="x"), info(**learning, step_stage="attempt")):

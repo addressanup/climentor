@@ -1,6 +1,20 @@
 # Status and handoff
 
-Last updated: 2026-10-21
+Last updated: 2026-10-25
+
+## Conversational tutoring change
+
+Scope: replace answer-key routing and visible assessment reports with short, continuous tutoring.
+Interpret ordinary replies semantically, preserve a question across clarification or missing input,
+continue after demonstrated understanding, and recover from input sent to the shell. Keep trusted
+execution checks and existing permissions; distinguish task success from independent understanding.
+This is a local, reversible change to the tutor flow (Tier 2). Verified with isolated regression tests,
+the non-live suite, lint, and types. No paid model calls or real learner data were used.
+
+Nineteen new conversation regression cases cover paraphrases, clarification without punctuation,
+missing input, smaller corrective questions, restart persistence, pane mix-ups, mixed concept/file
+checks, transfer evidence, saved-answer retries, unrelated terminal updates, and eager UI task completion.
+The new semantic flow has not been tested with a live model.
 
 ## Where things stand
 
@@ -30,12 +44,12 @@ pytest-asyncio 1.4.0, mypy 2.4.0, ruff 0.17.0, pynvim 0.6.0.
 
 ## Tests actually run (latest)
 
-Command: `uv run pytest -m "not live"` → **224 passed, 2 deselected** (after
-the reply streaming fixes below).
+Command: `uv run pytest -m "not live"` → **242 passed, 2 deselected** (2026-10-25,
+after the conversational tutoring changes).
 
 | Group | Count | What they use |
 |---|---|---|
-| `tests/unit` | 205 | Pure logic, real SQLite, real IPC socket, real Python subprocesses, Textual Pilot (tutor pane and full-screen setup), real SDK parsing via `httpx2.MockTransport`, ChatGPT sign-in against a fake OpenAI server with a real local return page |
+| `tests/unit` | 223 | Pure logic, real SQLite, real IPC socket, real Python subprocesses, Textual Pilot (tutor pane and full-screen setup), recorded semantic replies, real SDK parsing via `httpx2.MockTransport`, ChatGPT sign-in against a fake OpenAI server with a real local return page |
 | `tests/integration` | 17 | Real tmux (private sockets), real zsh with the hooks, real headless Neovim with the plugin |
 | `tests/e2e` | 2 | The real `mentor` command, tmux, zsh, Neovim, and the Textual tutor pane, mock provider |
 | `tests/live` | 2 | **Not run** (skipped: needs your API key and model id) |
@@ -43,12 +57,15 @@ the reply streaming fixes below).
 Also run: `uv run ruff check .` (clean), `uv run ruff format --check .` (clean),
 `uv run mypy` (strict, clean, 65 source files).
 
-UI checks run: screenshots of every tutor-pane state (first-run tour,
+Current UI checks: the Textual Pilot suite, including conversational input hints, hidden teaching
+stages, streaming/cancellation, and setup; plus the real private tmux end-to-end sessions.
+
+Historical UI checks (before this change): screenshots of every tutor-pane state (first-run tour,
 permission dialog, plan, file approval, lesson) at 76 and 60 columns, dark and
 light colours, and of every setup page; plus a real isolated session in tmux
 (pane labels, status bar text, tutor pane captured with colours at 75×49).
 
-Manual checks run: `mentor init --yes`, `mentor doctor`, `mentor start
+Historical manual checks (before this change): `mentor init --yes`, `mentor doctor`, `mentor start
 --detach`, a full lesson typed into the panes (approval dialog, explanation,
 prediction, two deliberate mistakes, small hint quoting the real error, fix,
 `/check`, evidence with assistance level 1), quit via Ctrl+Q → end (no
@@ -91,20 +108,27 @@ tmux sockets.
 
 ## UI, setup and first walkthrough (current)
 - Tutor pane: terminal colours (light/dark guess, `CLI_MENTOR_THEME` override); header with subject,
-  "step N of M", learn → try → check, and a line that fills as steps get done; one-line status in words;
+  "step N of M", and a line that fills as steps get done; teaching stages stay internal; one-line status in words;
   input hint that says what to type next; labelled replies ("Mentor · hint · deepseek-chat"); question
   dialogs with letters, arrows or mouse.
 - `mentor init`: full-screen, five steps, shared save logic with `--plain`/`--yes`; offers to start.
 - First `mentor start` opens setup if needed; the first session begins with a short tour (`/tour` replays it).
 - tmux: bars in terminal colours, pane labels "Mentor", "Editor · nvim", "Shell · zsh".
 
-## Assessment in plain English (current)
-- No commands needed. "done", answers, "hint", "next", "skip", "show the plan", "new subject: …" are
-  handled directly; longer messages go to the model, which can call `request_check` (with the learner's
-  answer), `assess_step` or `start_step`. Trusted code still decides pass or fail.
+## Conversation in plain English (current)
+- One idea, example, and question at a time; short feedback and automatic continuation after understanding.
+- Conceptual replies use `interpret_reply`, accepting synonyms and paraphrases. Clarification requests
+  preserve the question, including requests without a question mark. Corrections ask a smaller question.
+- Trusted execution checks stay in the background. Their success alone never establishes understanding;
+  semantic explanation/transfer evidence remains model-inferred and unverified, with help recorded.
+- Pending questions survive restarts. Empty/scrambled replies and shell mix-ups produce no negative
+  skill evidence; a shell mix-up gets a one-line reminder to use the left pane.
+- A malformed interpretation is retried once with the saved reply. If processing still fails, “try again”
+  reuses that saved reply. Textual's eager task scheduling is handled without losing the interpretation.
 - Running the program successfully in the step folder checks the step by itself, if running code was
   allowed for the session.
-- Tested with the mock provider and recorded tool calls, and with DeepSeek (see the real-model test below).
+- This new semantic flow is tested offline with recorded judgments and the mock, not a live model.
+  The DeepSeek results below describe the earlier flow.
 - Slash commands still work as optional shortcuts; no message suggests them any more.
 
 ## Real-model end-to-end test (DeepSeek `deepseek-flash`, 2026-10-20)
@@ -195,4 +219,4 @@ the first three steps of a C++ plan, with DeepSeek (see the real-model test abov
    `CLI_MENTOR_LIVE_ANTHROPIC_KEY=... CLI_MENTOR_LIVE_ANTHROPIC_MODEL=<id> uv run pytest -m live`
 2. Try a real session: `uv run mentor init` (choose your provider), then `uv run mentor start`.
 3. Push to GitHub and check the CI run.
-4. Add a quiz bank for `/review`, a Git track, and age-based log cleanup.
+4. Expand conversational transfer reviews, add a Git track, and age-based log cleanup.

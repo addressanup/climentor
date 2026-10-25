@@ -14,12 +14,15 @@ designs a plan; trusted code checks your work.
    change; the model revises it. Nothing is saved as your plan until you accept.
 4. **Steps, one at a time.** When you reach a step, the model prepares it
    (`prepare_step`) using what the tutor knows about you so far. Then the
-   usual order applies: new words and symbols explained → example →
-   prediction → task → check → transfer question.
+   tutor explains one idea, shows one example, and asks one natural question.
+   Ordinary replies are interpreted for meaning, including synonyms. A correction
+   leads to a smaller question; understanding leads straight into the next idea.
+   Execution checks and progress stay in the background. After a successful run,
+   one explanation or transfer question distinguishes understanding from output.
 5. **Next sessions.** `mentor start` lists your subjects (progress, last
    studied, folder) and asks which one to continue, or `n` for a new one.
    The chosen subject reopens its own session and conversation, with the
-   panes in its folder: "Welcome back. Next is step 7: …"
+   panes in its folder. Any pending conversational question is restored.
 
 ## Subjects and folders
 
@@ -56,7 +59,7 @@ Starter files are written into the practice folder only after you approve.
 | `file_contains` | The file contains a piece of text (plain text, no regex) |
 | `command_succeeded` | A command starting with that program (e.g. `c++`, `make`) was observed finishing with exit 0 |
 | `program_output` | Compiles C (`cc -std=c17`) or C++ (`c++ -std=c++20`), or runs Python, then compares the output. Flags are fixed in code. Needs your "run my code" approval. Host execution with limits, **not a sandbox**. |
-| `learner_answer` | Compares your answer with accepted answers (ignores case and punctuation). You just type it; if you answer in a sentence, the AI tutor passes on only your answer words, and trusted code still does the comparison |
+| `learner_answer` | Supplies a concept question and reference answers. Ordinary replies are interpreted semantically by `interpret_reply`, accepting synonyms; these judgments are recorded as model-inferred, unverified evidence. The optional explicit answer checker retains its factual comparison |
 | `editor_commands` | Opt-in Neovim command counts; only affects "technique verified/unverified" |
 
 The model chooses which checks to use and their data. It cannot add commands,
@@ -66,6 +69,12 @@ compiler flags, or new check types. The checker id is `plan.generic.v1`
 **Steps without an automatic check** are reviewed by the tutor (`assess_step`
 tool: complete / needs work). That review is recorded as **unverified** and
 does not change skill states. `/plan skip` records a step as skipped.
+
+Semantic explanations and transfer can update skill states, with their model-inferred
+provenance retained. A successful execution check alone does not mark a skill as
+independently understood. Help stays recorded; empty, scrambled, and misdirected
+input does not count as negative skill evidence. A shell mix-up produces a short
+reminder to use the tutor pane and leaves the pending question intact.
 
 ## Offline (mock) tutor
 

@@ -109,6 +109,7 @@ class TurnInputs:
     phase: str = "learning"
     plan_id: str | None = None
     extra_trusted: list[str] = field(default_factory=list)
+    open_questions: list[str] = field(default_factory=list)
 
 
 class ContextAssembler:
@@ -167,7 +168,8 @@ class ContextAssembler:
                     "explain": "they should answer the prediction question in their own words (or say skip)",
                     "attempt": "they are doing the task; when they say (in any words) that they are done, or give "
                     "an answer, the work is checked (call request_check); they can say hint if stuck",
-                    "verified": "finished; the next step starts when they say they are ready (call start_step)",
+                    "reflect": "the task worked; discuss one explanation or transfer question before continuing",
+                    "verified": "finished; continue straight into the next idea (call start_step)",
                 }
                 started = t.lesson is not None and t.lesson.order == current.position
                 lines.append(
@@ -202,6 +204,14 @@ class ContextAssembler:
         if t.goal:
             lines.append(f"Session goal: {t.goal}")
         lines.append("Objectives: " + "; ".join(les.objectives))
+        if t.open_questions:
+            lines.append("Pending conversational question: " + t.open_questions[0])
+        for c in les.verifier_params.get("checks", []):
+            if c.get("type") == "learner_answer":
+                lines.append(
+                    f"Concept question: {c['question']}\nReference meanings (accept synonyms and paraphrases): "
+                    + "; ".join(c.get("accepted", []))
+                )
         if t.trigger in (Trigger.LESSON_INTRO, Trigger.EXPLAIN):
             lines.append("Explanation material:\n" + les.explanation_markdown())
         if t.trigger == Trigger.LESSON_INTRO and les.prediction:
@@ -235,7 +245,7 @@ class ContextAssembler:
                 s = states.get(skill)
                 if s:
                     lines.append(
-                        f"- [observed evidence] {skill}: {s.state.replace('_', ' ')} "
+                        f"- [learning evidence; semantic judgments are model-inferred] {skill}: {s.state.replace('_', ' ')} "
                         f"({s.independent_passes} independent, {s.assisted_passes} assisted, {s.failures} failed checks)"
                     )
                 else:

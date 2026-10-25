@@ -128,7 +128,7 @@ async def test_a_question_before_predicting_keeps_the_prediction_open(ws: Path) 
         await reach_first_step(eng)
         await eng.learner_message("what does #include mean?")
         assert eng.session.exercise_stage == "explain"
-        assert ui.last_turn("explain") is not None
+        assert ui.last_turn("prediction") is not None
     finally:
         await eng.stop()
 

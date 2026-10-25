@@ -13,7 +13,7 @@ SOURCE_NAMES = {"term": "terminal", "shell": "shell", "nvim": "Neovim"}
 class StatusInfo:
     goal: str | None
     exercise: str | None
-    stage: str | None  # explain | attempt | verified
+    stage: str | None  # explain | attempt | reflect | verified
     mode: str
     observation: str  # "on" | "paused" | "off"
     sync: str

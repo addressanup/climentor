@@ -140,7 +140,7 @@ def test_skill_states_and_review_schedule(tmp_path: Path) -> None:
     # Independent pass in the same exercise, then another context.
     a2 = ev.start_attempt(None, nav, "guided")
     assert a2.id != a.id
-    ev.record_verification(a2.id, nav, result(True))
+    ev.record_verification(a2.id, nav, result(True), understanding=True)
     s = {x.skill: x for x in ev.skill_states()}["cli.navigate.cd"]
     assert s.state == "demonstrated_independently"
     assert s.next_review_at == clock.t + 3 * DAY  # interval grows 1 -> 3 days

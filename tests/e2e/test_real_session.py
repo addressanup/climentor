@@ -191,8 +191,16 @@ def test_acceptance_learning_flow(rig: Rig) -> None:
         what="verification evidence",
     )
     assert isinstance(rows, list) and all(row == ("pass", 1) for row in rows)
-    nxt = wait(lambda: [m for m in tutor_messages(r, "verification") if "Next is **step 2" in m], what="next step")
-    assert nxt
+    reflection = wait(
+        lambda: [m for m in tutor_messages(r, "verification") if "How would you print two lines?" in m],
+        what="transfer question",
+    )
+    assert reflection
+    r.type(tutor, "I would print a second message with a newline")
+    wait(
+        lambda: [m for m in tutor_messages(r, "lesson_intro") if "Variables and types" in m],
+        what="next idea without a command",
+    )
 
     # 12. Unsaved Neovim edits reach the tutor process; the disk is unchanged.
     notes = r.ws / "notes.txt"

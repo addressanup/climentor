@@ -51,23 +51,23 @@ Test evidence is listed in `STATUS.md`.
 | Feature | Status | Notes |
 |---|---|---|
 | Six teaching modes | Done | Mode text in the system policy; deterministic rules per mode |
-| Explain → demonstrate → predict → task → check → transfer | Done | Enforced by the engine stage machine |
+| One idea → example → natural reply → feedback and continuation | Done | Internal stages preserve prediction, work checks, and transfer without exposing an assessment phase |
 | Graduated hints with assistance levels 0–4 | Done | `/hint`, `/solution` |
 | Deterministic intervention policy (debounce, cooldown, thresholds, no overlap) | Done | |
 | Stale advice: unsolicited withdrawn, solicited annotated | Done | Engine tests with timed streams |
 | Trust-separated prompt sections, tag neutralisation | Done | Prompt-injection test |
-| Validated model actions (`propose_memory`, `request_check`) | Done | Model inferences stay "proposed" |
+| Validated model actions (`propose_memory`, `request_check`, `interpret_reply`) | Done | Memory proposals stay "proposed"; semantic judgments retain model-inferred provenance |
 | Curriculum-only fallback when the provider fails | Done | |
 | Streaming, multiline input, cancel (Esc), approvals, readable code | Done | Textual app |
-| Tutor pane header: subject, step N of M, learn → try → check, a line that fills as steps get done | Done | Words and shapes (● ○ ✓), not only colour |
+| Tutor pane header: subject, step N of M, a line that fills as steps get done | Done | Teaching stages stay internal |
 | Input hint says what to type next (goal, yes/changes, prediction, "done") | Done | |
-| Continuous assessment in plain English (no commands needed) | Done (offline-tested) | "done", answers, "hint", "next", "skip" handled directly; longer messages: the model calls `request_check` / `assess_step` / `start_step`. Real-model tool use not yet tested |
+| Continuous conversation in plain English (no commands needed) | Done (offline-tested) | Semantic replies via `interpret_reply`, smaller corrective questions, missing-input recovery, automatic continuation; trusted checks stay in the background. This interpretation flow has not been live-model tested |
 | Automatic check after you run your program successfully | Done | Only if you allowed running your code for the session |
 | Uses the terminal's own colours (light or dark) | Done | Guessed from `COLORFGBG`; `CLI_MENTOR_THEME` overrides |
 | First-session tour (screen, keys, how we work), `/tour` to replay | Done | Not sent to the model |
 | Question dialogs: letter keys, or ↑ ↓ and Enter, or click | Done | |
 | Rich review sessions (spaced quizzes generated per skill) | Partial | `/review` lists due skills and asks the model for a question; no dedicated quiz bank |
-| Model-judged transfer answers as evidence | Planned | Answers are stored as unverified evidence only |
+| Model-judged transfer answers as evidence | Done (offline-tested) | Model-inferred, unverified provenance retained; independent understanding requires correct application without help |
 
 ## Providers
 
@@ -88,7 +88,7 @@ Test evidence is listed in `STATUS.md`.
 | Welcome asks "What would you like to learn?" | Done | Deterministic first message, stored for context |
 | AI-designed linear plan (propose, revise, accept) | Done (offline-tested) | Validated tool call; tested with recorded answers; quality depends on your model |
 | Steps prepared on demand using memory and evidence | Done (offline-tested) | `prepare_step` tool, validated, turned into a normal lesson |
-| Later sessions offer to continue | Done | "Welcome back… next is step N" |
+| Later sessions restore the conversation | Done | Pending questions persist; otherwise the tutor offers the next step |
 | Fixed check menu run by trusted code | Done | files, commands, C/C++/Python output, answers, opt-in editor counts |
 | Real C/C++ compile-and-run checks | Done | Apple clang; fixed flags; host execution with limits, not a sandbox |
 | AI review for steps without automatic checks | Done | Recorded as unverified |

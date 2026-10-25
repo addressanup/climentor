@@ -99,6 +99,12 @@ class EvidenceStore:
         row = self.store.conn.execute("SELECT * FROM attempts WHERE id = ?", (attempt_id,)).fetchone()
         return self._attempt(row) if row else None
 
+    def latest_attempt(self, exercise_id: str) -> Attempt | None:
+        row = self.store.conn.execute(
+            "SELECT * FROM attempts WHERE exercise_id = ? ORDER BY started_at DESC LIMIT 1", (exercise_id,)
+        ).fetchone()
+        return self._attempt(row) if row else None
+
     def start_attempt(self, session_id: str | None, lesson: Lesson, mode: str) -> Attempt:
         existing = self.current_attempt(lesson.id)
         if existing is not None:
@@ -141,7 +147,9 @@ class EvidenceStore:
                 (skill, now),
             )
 
-    def record_verification(self, attempt_id: str, lesson: Lesson, result: VerificationResult) -> None:
+    def record_verification(
+        self, attempt_id: str, lesson: Lesson, result: VerificationResult, *, understanding: bool = False
+    ) -> None:
         attempt = self.get_attempt(attempt_id)
         if attempt is None:
             raise KeyError(attempt_id)
@@ -179,7 +187,40 @@ class EvidenceStore:
                     (now, attempt_id),
                 )
         for skill in lesson.skills:
-            self._update_state(skill, lesson.id, result.passed, attempt.max_assistance, review=False)
+            if not result.passed or understanding or attempt.max_assistance:
+                self._update_state(skill, lesson.id, result.passed, attempt.max_assistance, review=False)
+            else:
+                self.introduce([skill])  # a successful run alone does not demonstrate understanding
+
+    def record_understanding(
+        self, attempt_id: str, lesson: Lesson, text: str, *, independent: bool, transfer: bool = False
+    ) -> None:
+        """A semantic judgment stays model-inferred, distinct from trusted execution evidence."""
+        if not text.strip():
+            return
+        attempt = self.get_attempt(attempt_id)
+        if attempt is None:
+            raise KeyError(attempt_id)
+        assistance = attempt.max_assistance
+        for skill in lesson.skills:
+            self.store.conn.execute(
+                "INSERT INTO skill_evidence(skill, attempt_id, exercise_id, kind, result, assistance_level, "
+                "technique, provenance, details, created_at) "
+                "VALUES (?, ?, ?, ?, 'unverified', ?, 'not_applicable', 'model_inferred', ?, ?)",
+                (
+                    skill,
+                    attempt_id,
+                    lesson.id,
+                    "transfer" if transfer else "explanation",
+                    assistance,
+                    json.dumps({"answer": text[:1000], "independent": independent and assistance == 0}),
+                    self.clock(),
+                ),
+            )
+            if independent or assistance:
+                self._update_state(skill, lesson.id, True, assistance, review=False)
+            else:
+                self.introduce([skill])  # recall alone proves neither independent use nor assistance
 
     def record_answer(
         self,
@@ -190,6 +231,8 @@ class EvidenceStore:
         provenance: str = "user_stated",
     ) -> None:
         """A prediction or transfer answer. Stored as unverified evidence."""
+        if not text.strip():
+            return
         now = self.clock()
         for skill in lesson.skills:
             self.store.conn.execute(

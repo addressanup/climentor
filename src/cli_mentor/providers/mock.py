@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -41,6 +42,7 @@ class MockBehaviour:
     plan: dict[str, Any] | None = None
     steps: list[dict[str, Any]] = field(default_factory=list)
     assessment: dict[str, Any] | None = None
+    reply: dict[str, Any] | None = None  # recorded interpretation; the mock cannot infer meaning
 
     @classmethod
     def from_fixture(cls, path: str | Path) -> MockBehaviour:
@@ -86,9 +88,9 @@ def compose(meta: TurnMeta | None) -> str:
     elif t == "verification":
         parts.append(meta.verification_summary or "The checker returned no summary.")
         if meta.extra.get("passed"):
-            parts.append("Now explain in one sentence *why* your command worked.")
+            parts.append(str(meta.extra.get("open_question") or "Why did that work?"))
         else:
-            parts.append("Look at the failing check above, change one thing, and tell me when to look again.")
+            parts.append("What is one small change you could try?")
     elif t == "session_start":
         parts.append(meta.learner_text or "Welcome back.")
     elif t == "prediction":
@@ -143,7 +145,7 @@ class MockProvider:
         b = self.behaviour
         if b.fail_with is not None and b.fail_after_chunks is None:
             raise b.fail_with
-        planned = self._planning(request.meta)
+        planned = self._planning(request)
         if planned is not None:
             text, call = planned
             yield TextDelta(text)
@@ -169,9 +171,33 @@ class MockProvider:
         yield Usage(estimate_request_tokens(request), estimate_tokens(text), estimated=True)
         yield Done("end_turn")
 
-    def _planning(self, meta: TurnMeta | None) -> tuple[str, ToolCall | None] | None:
+    def _planning(self, request: ProviderRequest) -> tuple[str, ToolCall | None] | None:
         b = self.behaviour
+        meta = request.meta
         trigger = meta.trigger if meta else ""
+        if meta is not None and any(t.name == "interpret_reply" for t in request.tools or []):
+            # Deterministic fixture behaviour, not semantic reasoning. Tests can record an interpretation.
+            from ..curriculum.adapters.generic import answer_matches
+
+            text = meta.learner_text.strip()
+            checks = meta.extra.get("answer_checks", [])
+            clarification = bool(re.match(r"^(before\b|explain\b|what\b|why\b|how\b|can you\b)", text, re.I))
+            verdict = "understood"
+            if not re.search(r"\w", text):
+                verdict = "no_answer"
+            elif clarification:
+                verdict = "clarification"
+            elif trigger != "prediction" and meta.stage != "reflect" and checks:
+                verdict = "understood" if all(answer_matches(text, c["accepted"]) for c in checks) else "needs_work"
+            reply = b.reply or {
+                "verdict": verdict,
+                "feedback": "That fits the example."
+                if verdict == "understood"
+                else "Let's look at that part together.",
+                "follow_up": "Which part of the example helps you decide?" if verdict == "needs_work" else "",
+                "independent": False,
+            }
+            return "", ToolCall("interpret_reply", reply)
         if trigger in ("plan", "plan_revise") and b.plan is not None:
             return "Here is a plan for that (recorded mock answer).", ToolCall("propose_plan", b.plan)
         if trigger == "prepare_step" and b.steps:

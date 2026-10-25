@@ -54,16 +54,13 @@ class VerificationResult:
                 f"**No automatic check for this step** (trusted checker `{self.verifier}`). "
                 "The tutor will review your work; that review is recorded as *unverified*."
             )
-        head = "PASSED" if self.passed else "NOT YET"
-        lines = [f"**Check result: {head}** (trusted checker `{self.verifier}`)"]
-        for c in self.checks:
-            mark = "[PASS]" if c.passed else "[FAIL]"
-            lines.append(f"- {mark} {c.name} — {c.detail} _(evidence: {c.evidence})_")
+        relevant = self.checks if self.passed else [c for c in self.checks if not c.passed][:1]
+        lines = [f"{c.name}: {c.detail}." for c in relevant]
+        if not lines:
+            lines.append("The work matches the task." if self.passed else "Let's take another look at the work.")
         if self.technique != "not_applicable":
-            lines.append(f"- Technique: **{self.technique}** — {self.technique_detail}")
-        if self.executed_learner_code:
-            lines.append("- Your code was run on this Mac (host execution, not a sandbox).")
-        return "\n".join(lines)
+            lines.append(self.technique_detail.rstrip(".") + ".")
+        return " ".join(lines)
 
 
 @dataclass

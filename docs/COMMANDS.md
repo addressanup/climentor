@@ -34,7 +34,7 @@ work as you go:
 | You say (any similar words) | What happens |
 |---|---|
 | "done", "I think I'm done", "check it" | Your work is checked by trusted code |
-| An answer to the step's question, e.g. "int" or "I think it's an int" | Your answer is checked |
+| An answer to the step's question, e.g. "int" or "I think it's an integer" | The tutor reads its meaning, accepts synonyms, and continues after understanding |
 | "hint", "I'm stuck" | The next, slightly stronger hint (recorded as help) |
 | "next", "ready", "continue", "let's go" | The next step starts |
 | "skip" | Skips the prediction question, or the current step |
@@ -42,9 +42,9 @@ work as you go:
 | "show me the solution" | Shows the solution (asks first; recorded as full help) |
 | "new subject: Rust" | Starts a new learning plan |
 
-Short messages like these are handled directly. For anything longer, the AI
-tutor decides: if you say you have finished or give an answer, it runs the
-check itself. If you allowed running your code "for this session", running
+Conceptual replies are interpreted by the tutor, which distinguishes answers
+from clarification requests even without a question mark. Hands-on work is
+checked by trusted code when you say it is finished. If you allowed running your code "for this session", running
 your program successfully in the step folder also checks the step.
 
 ## Tutor-pane shortcuts (`/...`)

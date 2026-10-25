@@ -57,6 +57,7 @@ from ..events.schema import (
     SourceKind,
     SourceRef,
     TmuxOutput,
+    TmuxSnapshot,
 )
 from ..events.sequencing import Sequencer
 from ..memory.evidence import EvidenceStore
@@ -98,7 +99,9 @@ NO_STALE_NOTE = frozenset({Trigger.LESSON_INTRO, Trigger.PLAN, Trigger.PLAN_REVI
 # Every reply gets room to finish: wordy models (DeepSeek) cut off explanations and hints at 1024 tokens.
 MIN_REPLY_TOKENS = 3000
 CUT_OFF = frozenset({"length", "max_tokens", "max_output_tokens"})  # stop reasons that mean “ran out of room”
-CALLER_HANDLED_TOOLS = frozenset({"propose_plan", "prepare_step", "assess_step", "request_check", "start_step"})
+CALLER_HANDLED_TOOLS = frozenset(
+    {"propose_plan", "prepare_step", "assess_step", "request_check", "start_step", "interpret_reply"}
+)
 YES = re.compile(
     r"^(y|yes|yeah|yep|ok|okay|sure|start|go|let'?s go|let'?s start|sounds good|looks good|perfect)\b[.!]*", re.I
 )
@@ -168,6 +171,10 @@ def _has_answer_check(lesson: Lesson) -> bool:
     return "learner_answer" in _check_types(lesson)
 
 
+def _concept_only(lesson: Lesson) -> bool:
+    return _check_types(lesson) == {"learner_answer"}
+
+
 def _needs_review(lesson: Lesson) -> bool:
     """No automatic check: the tutor judges the work (recorded as unverified)."""
     return not _check_types(lesson)
@@ -198,9 +205,10 @@ class InFlight:
     turn_id: int
     trigger: Trigger
     revision: ContextRevision
-    task: asyncio.Task[None]
+    task: asyncio.Task[str]
     cancel_status: str = "cancelled"
     cancel_note: str = ""
+    result_status: str = "running"
 
     @property
     def solicited(self) -> bool:
@@ -246,6 +254,8 @@ class Engine:
         self.plans = PlanStore(store)
         self._turn_tools: dict[int, list[ToolCall]] = {}
         self.last_reply = ""  # words of the latest visible tutor reply
+        self._bare_prompts = 0
+        self._pane_reminded = False
         self.assembler = ContextAssembler(
             self.state, self.scope, self.profile, self.notes, self.evidence, self.sessions, clock, plans=self.plans
         )
@@ -552,7 +562,7 @@ class Engine:
 
     def _hooks(self, env: EventEnvelope) -> None:
         t = env.type
-        is_tutor_output = isinstance(env.payload, TmuxOutput) and env.payload.pane_id == self.tutor_pane
+        is_tutor_output = isinstance(env.payload, TmuxOutput | TmuxSnapshot) and env.payload.pane_id == self.tutor_pane
         activity = ("tmux.output", "nvim.buffer_lines", "nvim.cursor", "nvim.mode", "shell.command_started")
         if t in activity and not is_tutor_output:
             self.last_activity = self.monotonic()
@@ -560,6 +570,14 @@ class Engine:
             self.last_activity = self.monotonic()
             record = self.state.last_command()
             if record is None:
+                return
+            if not record.command.strip():
+                self._bare_prompts += 1
+            else:
+                self._bare_prompts = 0
+            tutor_shortcut = re.match(r"^/(?:check|hint|lesson|next)(?:\s|$)", record.command.strip())
+            if (tutor_shortcut and record.exit_status == 127) or self._bare_prompts >= 2:
+                self._remind_tutor_pane()
                 return
             relevant = self._in_exercise(record.cwd)
             if self.policy.note_command(record.exit_status or 0, relevant, record.command):
@@ -571,6 +589,23 @@ class Engine:
             assert isinstance(p, NvimBufferWritten)
             if self._in_exercise(p.path):
                 self._spawn(self.check(auto=True))
+        elif isinstance(env.payload, TmuxOutput | TmuxSnapshot) and not is_tutor_output:
+            pane = self.state.panes.get(env.payload.pane_id)
+            fresh = env.payload.text if isinstance(env.payload, TmuxOutput) else "\n".join(env.payload.lines)
+            text = pane.tail if isinstance(env.payload, TmuxOutput) and pane else fresh
+            if re.search(
+                r"(?:command not found:\s*/(?:check|hint|lesson)|/(?:check|hint|lesson): command not found)", fresh
+            ):
+                self._remind_tutor_pane()
+            else:
+                lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+                if len(lines) >= 2 and lines[-1] == lines[-2] and re.fullmatch(r"[\w@.:~/() -]*[%$❯>]", lines[-1]):
+                    self._remind_tutor_pane()
+
+    def _remind_tutor_pane(self) -> None:
+        if not self._pane_reminded:
+            self._say("Type your reply in the tutor pane on the left.", "explain")
+            self._pane_reminded = True
 
     def _after_batch(self) -> None:
         fl = self.inflight
@@ -629,6 +664,11 @@ class Engine:
         plan = self.plans.get(self.session.plan_id) if self.session.plan_id else None
         done, total = self.plans.progress(plan.id) if plan else (0, 0)
         step = self.plans.current(plan) if plan and plan.status != "proposed" else None
+        if plan and self.session.exercise_stage == "reflect":
+            step = next(
+                (s for s in self.plans.steps(plan.id) if lesson_id(plan.id, s.step_id) == self.session.active_exercise),
+                step,
+            )
         return StatusInfo(
             goal=self.session.goal,
             exercise=self.session.active_exercise,
@@ -786,6 +826,7 @@ class Engine:
         self.evidence.introduce(lesson.skills)
         self.session.active_exercise = lesson.id
         self.session.exercise_stage = "explain"
+        self.session.open_questions = [lesson.prediction] if lesson.prediction else []
         self.session.hint_level = 0
         self.policy.reset_failures()
         self._save_session()
@@ -990,6 +1031,7 @@ class Engine:
                 self.evidence.close_attempt(attempt.id, "abandoned")
         nxt = self.plans.finish_step(plan.id, step.step_id, "skipped")
         self.session.exercise_stage = "verified"
+        self.session.open_questions = []
         self._save_session()
         self._say(
             f"Skipped step {step.position}: {step.title}."
@@ -1036,21 +1078,18 @@ class Engine:
         lesson = self.lesson()
         if lesson is None:
             return
-        attempt = self.evidence.current_attempt(lesson.id)
-        self.evidence.record_answer(attempt.id if attempt else None, lesson, "explanation", f"prediction: {text}")
-        self.session.exercise_stage = "attempt"
-        self._save_session()
-        await self.run_turn(Trigger.PREDICTION, learner_text=text)
-        self._where_to_work()
+        await self._interpret_reply(lesson, text, prediction=True)
 
     async def skip_prediction(self) -> None:
         lesson = self.lesson()
         if lesson is None:
             return
         self.session.exercise_stage = "attempt"
+        self.session.open_questions = self._answer_questions(lesson)
         self._save_session()
         self.ui.note(f"**Your task:**\n\n{lesson.instructions.strip()}", "info")
-        self._where_to_work()
+        if not _concept_only(lesson):
+            self._where_to_work()
 
     def _where_to_work(self) -> None:
         """Say which folder the task's files belong in, unless the shell is already there."""
@@ -1072,13 +1111,9 @@ class Engine:
             )
             return
         self.session.hint_level += 1
-        if self.session.exercise_stage == "explain":
-            self.session.exercise_stage = "attempt"
         self._save_session()
         hint = lesson.hint(self.session.hint_level)
         self._record_assistance(self.session.hint_level, hint=True)
-        if self.session.mode == "assessment":
-            self.ui.note("Assessment mode: this attempt is now marked as assisted.", "info")
         await self.run_turn(Trigger.HINT, hint_text=hint.text if hint else None, hint_level=self.session.hint_level)
 
     async def solution(self) -> None:
@@ -1101,7 +1136,12 @@ class Engine:
         )
 
     async def check(
-        self, answer: str | None = None, *, auto: bool = False, run_code: bool = False
+        self,
+        answer: str | None = None,
+        *,
+        auto: bool = False,
+        run_code: bool = False,
+        concept_answer: str | None = None,
     ) -> VerificationResult | None:
         """Run the trusted checks. ``auto``: nobody asked, so never ask questions and stay quiet on failure.
         ``run_code``: the learner just ran their program; an automatic check may run it too if they allowed
@@ -1111,7 +1151,18 @@ class Engine:
             if not auto:
                 self.ui.note("There is no task to check right now. Say “next” to start the next step.", "info")
             return None
-        if auto and self.session.exercise_stage in ("verified", "explain"):
+        if self.session.exercise_stage == "reflect":
+            if not auto:
+                if answer and answer.strip():
+                    await self._interpret_reply(lesson, answer)
+                else:
+                    self._missing_answer(lesson)
+            return None
+        if auto and self.session.exercise_stage in ("verified", "explain", "reflect"):
+            return None
+        if _has_answer_check(lesson) and not (answer or concept_answer or "").strip():
+            if not auto:
+                self._missing_answer(lesson)
             return None
         verifier = get_verifier(lesson.verifier)
         workdir = self.workspace_root / lesson.workdir
@@ -1155,7 +1206,12 @@ class Engine:
             workdir=workdir,
             scope=self.scope,
             state=self.state,
-            params=lesson.verifier_params,
+            params={
+                **lesson.verifier_params,
+                "checks": [c for c in lesson.verifier_params.get("checks", []) if c.get("type") != "learner_answer"],
+            }
+            if concept_answer is not None
+            else lesson.verifier_params,
             attempt_started_at=attempt.started_at,
             answer=answer,
             runner=runner,
@@ -1166,23 +1222,25 @@ class Engine:
         if auto and not result.passed:
             return result  # stay quiet; do not record a "failure" the learner did not ask for
         if result.needs_review:
-            self.ui.note(result.summary(), "info")
             await self._review_step(lesson, attempt.id)
             return result
-        self.evidence.record_verification(attempt.id, lesson, result)
+        self.evidence.record_verification(attempt.id, lesson, result, understanding=False)
         self.state.bump({"exercise"})
-        self.ui.note(result.summary(), "success" if result.passed else "warn")
         if result.passed:
             self._mark_verified(lesson)
+            self.session.exercise_stage = "reflect"
+            self.session.open_questions = [
+                lesson.transfer[0] if lesson.transfer else "How would you use this idea in a different example?"
+            ]
+            self._save_session()
         else:
             self._save_session()
         await self.run_turn(Trigger.VERIFICATION, verification=result)
-        if result.passed:
-            self._announce_next(lesson)
         return result
 
     def _mark_verified(self, lesson: Lesson) -> None:
         self.session.exercise_stage = "verified"
+        self.session.open_questions = []
         self.session.hint_level = 0
         self.policy.reset_failures()
         self._disable_telemetry(lesson.id)
@@ -1195,24 +1253,18 @@ class Engine:
             return None
         return self.plans.finish_step(plan.id, plan.current_step or "", status)
 
-    def _announce_next(self, lesson: Lesson) -> None:
+    async def _continue_learning(self) -> None:
         plan = self.plans.get(self.session.plan_id) if self.session.plan_id else None
         if plan is None:
             return
-        done, total = self.plans.progress(plan.id)
         nxt = self.plans.current(plan)
         if nxt is None:
             self._say(
-                f"That was the last step of **{plan.title}** ({done} of {total} done). Well done! "
-                "Ask me for a review any time, or say “new subject:” and a topic to learn something else.",
+                f"That was the last step of **{plan.title}**. What would you like to try using these ideas?",
                 "verification",
             )
         else:
-            self._say(
-                f"Step done ({done} of {total}). Next is **step {nxt.position}: {nxt.title}** — "
-                f"{nxt.objective.rstrip('. ')}. Say **next** when you are ready, or ask me anything first.",
-                "verification",
-            )
+            await self.start_step()
 
     async def _review_step(self, lesson: Lesson, attempt_id: str) -> None:
         """No automatic check: the tutor reviews the observed work (recorded as unverified)."""
@@ -1225,18 +1277,17 @@ class Engine:
                 "warn",
             )
             return
-        self._apply_verdict(lesson, attempt_id, verdict)
+        await self._apply_verdict(lesson, attempt_id, verdict)
 
-    def _apply_verdict(self, lesson: Lesson, attempt_id: str, verdict: actions.AssessStep) -> None:
+    async def _apply_verdict(self, lesson: Lesson, attempt_id: str, verdict: actions.AssessStep) -> None:
         self.evidence.record_answer(
             attempt_id, lesson, "review", f"{verdict.verdict}: {verdict.feedback}", provenance="model_inferred"
         )
         if verdict.verdict == "complete":
             self.evidence.close_attempt(attempt_id, "passed")
-            self.ui.note("The tutor reviewed this step as complete (recorded as *unverified*).", "success")
             self._mark_verified(lesson)
             self.state.bump({"exercise"})
-            self._announce_next(lesson)
+            await self._continue_learning()
 
     async def cleanup_lesson(self) -> None:
         lesson = self.lesson()
@@ -1313,6 +1364,10 @@ class Engine:
         self.session.phase = "learning"
         self._save_session()
         self.plans.touch(plan.id, self.session_id)
+        lesson = self.lesson()
+        if lesson is not None and self.session.open_questions:
+            self._say(f"Welcome back. We were working on **{lesson.title}**.\n\n" + self.session.open_questions[0])
+            return
         done, total = self.plans.progress(plan.id)
         step = self.plans.current(plan)
         where = f"next is **step {step.position} of {total}: {step.title}**" if step else "every step is done"
@@ -1334,9 +1389,125 @@ class Engine:
             await fl.task
         return True
 
+    @staticmethod
+    def _answer_questions(lesson: Lesson) -> list[str]:
+        return [
+            str(c["question"]) for c in lesson.verifier_params.get("checks", []) if c.get("type") == "learner_answer"
+        ][:1]
+
+    def _missing_answer(self, lesson: Lesson | None) -> None:
+        questions = self.session.open_questions or (self._answer_questions(lesson) if lesson else [])
+        question = questions[0] if questions else "What would you like to tell me?"
+        self._say("I didn't receive an answer. " + question, "learner_message")
+
+    async def _interpret_reply(self, lesson: Lesson, said: str, *, prediction: bool = False) -> None:
+        """Read meaning through a typed model judgment; never turn it into a trusted check."""
+        stage = self.session.exercise_stage
+        pending_questions = list(self.session.open_questions)
+        guidance = [
+            "Call interpret_reply once, with no separate prose. Read the actual learner reply semantically. "
+            "feedback is one line of confirmation and precision, or a short explanation of only the "
+            "misconception. For needs_work ask a smaller follow_up; for clarification answer their "
+            "request and preserve the open question. Do not advance on missing or scrambled input.",
+            "Open question: "
+            + (self.session.open_questions[0] if self.session.open_questions else lesson.instructions),
+        ]
+        reply = None
+        for retry in range(2):
+            calls = await self.run_turn(
+                Trigger.PREDICTION if prediction else Trigger.LEARNER_MESSAGE,
+                learner_text=said,
+                tools=[actions.REPLY_TOOL],
+                visible=False,
+                extra_trusted=guidance,
+                record_learner=retry == 0,
+            )
+            if self.inflight is not None and self.inflight.task.cancelled():
+                return
+            if self.inflight is not None and self.inflight.result_status not in ("complete", "stale"):
+                log.info("interpretation stopped with status %s", self.inflight.result_status)
+                break
+            reply = next((v for c in calls if isinstance(v := actions.validate(c), actions.InterpretReply)), None)
+            if reply is not None:
+                break
+            log.info("interpretation had no valid reply tool (received %s)", [c.name for c in calls])
+            guidance.append(
+                "Your last response had no valid interpret_reply call. Retry the SAME saved learner reply; do not ask them to repeat it."
+            )
+        if reply is None:
+            self._say(
+                "I kept your reply, but couldn't process it just now. Say “try again” to retry that same reply.",
+                "retry_reply",
+            )
+            return
+        # A screen refresh does not invalidate the learner's words. A changed lesson/question does.
+        if (self.session.active_exercise, self.session.exercise_stage, self.session.open_questions) != (
+            lesson.id,
+            stage,
+            pending_questions,
+        ):
+            return
+        if reply.verdict == "no_answer":
+            self._missing_answer(lesson)
+            return
+        trigger = "prediction" if prediction else "learner_message"
+        if reply.verdict == "clarification":
+            pending = self.session.open_questions[:1]
+            self._say("\n\n".join([reply.feedback, *pending]), trigger)
+            return
+        if reply.verdict == "needs_work":
+            self._record_assistance(1)
+            question = reply.follow_up or "What does the example tell you about that part?"
+            self.session.open_questions = [question]
+            self._save_session()
+            self._say(reply.feedback + "\n\n" + question, trigger)
+            return
+        if prediction and not (reply.answers_task and _concept_only(lesson)):
+            attempt = self.evidence.current_attempt(lesson.id)
+            self.evidence.record_answer(attempt.id if attempt else None, lesson, "explanation", said)
+            self.session.exercise_stage = "attempt"
+            self.session.open_questions = self._answer_questions(lesson)
+            self._save_session()
+            self._say(reply.feedback + "\n\n**Your task:**\n\n" + lesson.instructions.strip(), trigger)
+            if not _concept_only(lesson):
+                self._where_to_work()
+            return
+        attempt = self.evidence.latest_attempt(lesson.id)
+        if attempt is not None:
+            self.evidence.record_understanding(
+                attempt.id, lesson, said, independent=reply.independent, transfer=stage == "reflect"
+            )
+        self._say(reply.feedback, trigger)
+        if _has_answer_check(lesson) and not _concept_only(lesson) and stage == "attempt":
+            await self.check(concept_answer=said)
+            return
+        if _concept_only(lesson) or stage == "reflect":
+            if attempt is not None:
+                self.evidence.close_attempt(attempt.id)
+            self._mark_verified(lesson)
+            await self._continue_learning()
+
     async def learner_message(self, text: str) -> None:
         """Everything the learner types that is not a /shortcut. Plain English drives the whole lesson."""
         said = text.strip()
+        self._bare_prompts = 0
+        self._pane_reminded = False
+        if not said:
+            self._missing_answer(self.lesson())
+            return
+        if said.casefold().rstrip(".! ") in ("try again", "retry"):
+            last = self.store.conn.execute(
+                "SELECT trigger FROM messages WHERE session_id = ? AND role = 'tutor' "
+                "AND trigger NOT IN ('session_start', 'tour') ORDER BY id DESC LIMIT 1",
+                (self.session_id,),
+            ).fetchone()
+            if last and last[0] == "retry_reply":
+                saved = self.store.conn.execute(
+                    "SELECT content FROM messages WHERE session_id = ? AND role = 'learner' ORDER BY id DESC LIMIT 1",
+                    (self.session_id,),
+                ).fetchone()
+                if saved:
+                    said = saved[0]
         short = len(said.split()) <= SHORT_WORDS
         if self.session.phase == "ask_goal":
             await self.create_plan(said)
@@ -1350,6 +1521,16 @@ class Engine:
         if (new := NEW_SUBJECT.match(said)) is not None:
             await self.new_goal(new.group("topic"))
             return
+        lesson = self.lesson()
+        if lesson is not None and self.session.exercise_stage == "reflect":
+            if short and (NEXT.match(said) or SKIP.match(said)):
+                self.session.open_questions = []
+                self.session.exercise_stage = "verified"
+                self._save_session()
+                await self._continue_learning()
+            else:
+                await self._interpret_reply(lesson, said)
+            return
         if self.plans.active() is None:
             finished = self.plans.get(self.session.plan_id) if self.session.plan_id else None
             if finished is not None and finished.status == "completed":
@@ -1360,14 +1541,13 @@ class Engine:
         if short and SHOW_PLAN.search(said):
             self.ui.note(self.plan_markdown())
             return
-        lesson = self.lesson()
         stage = self.session.exercise_stage if lesson is not None else None
         if stage == "explain":
             if short and SKIP.match(said):
                 await self.skip_prediction()
-            elif said.endswith("?"):  # a question before predicting: answer it, keep the prediction open
-                await self.run_turn(Trigger.EXPLAIN, learner_text=said)
-            else:
+            elif short and HINT.search(said):
+                await self.hint()
+            else:  # the model distinguishes an answer from a clarification, even without a question mark
                 await self.answer_prediction(said)
             return
         if stage == "attempt" and lesson is not None:
@@ -1386,9 +1566,6 @@ class Engine:
 
     async def _during_attempt(self, lesson: Lesson, said: str, short: bool) -> None:
         """The learner is doing the task. Saying they are done, answering, or asking for help all just work."""
-        if short and DONE.match(said):
-            await self.check()
-            return
         if short and HINT.search(said):
             await self.hint()
             return
@@ -1398,10 +1575,15 @@ class Engine:
         if short and SKIP.match(said):
             await self.skip_step()
             return
-        if _has_answer_check(lesson) and short and not said.endswith("?"):
-            result = await self.check(answer=said, auto=True)  # their words might be the answer itself
-            if result is not None and result.passed:
-                return
+        if _has_answer_check(lesson):
+            if short and DONE.match(said):
+                self._missing_answer(lesson)
+            else:
+                await self._interpret_reply(lesson, said)
+            return
+        if short and DONE.match(said):
+            await self.check()
+            return
         tools = [*actions.TOOLS, *([actions.ASSESS_TOOL] if _needs_review(lesson) else [])]
         calls = await self.run_turn(Trigger.LEARNER_MESSAGE, learner_text=said, tools=tools)
         if not await self._act_on(calls, lesson):
@@ -1417,7 +1599,7 @@ class Engine:
                 attempt = self.evidence.current_attempt(lesson.id) or self.evidence.start_attempt(
                     self.session_id, lesson, self.session.mode
                 )
-                self._apply_verdict(lesson, attempt.id, parsed)
+                await self._apply_verdict(lesson, attempt.id, parsed)
                 return True
             if isinstance(parsed, actions.StartStep) and lesson is None:
                 await self.start_step()
@@ -1446,6 +1628,7 @@ class Engine:
         extra_trusted: list[str] | None = None,
         visible: bool = True,
         plan_budget: bool = False,
+        record_learner: bool = True,
     ) -> list[ToolCall]:
         fl = self.inflight
         if fl is not None and not fl.task.done():
@@ -1471,6 +1654,7 @@ class Engine:
             phase=self.session.phase,
             plan_id=self.session.plan_id,
             extra_trusted=extra_trusted or [],
+            open_questions=list(self.session.open_questions),
         )
         settings = self.config.provider_settings(self.provider.name)  # type: ignore[arg-type]
         out_tokens = settings.plan_max_output_tokens if plan_budget else settings.max_output_tokens
@@ -1480,7 +1664,7 @@ class Engine:
             max_context_tokens=max(settings.max_context_tokens, out_tokens + 4000),
             max_output_tokens=out_tokens,
         )
-        if learner_text:
+        if learner_text and record_learner:
             self.sessions.add_message(self.session_id, "learner", learner_text, trigger=trigger.value)
         self.turn_counter += 1
         turn_id = self.turn_counter
@@ -1492,8 +1676,12 @@ class Engine:
         task.add_done_callback(lambda _t: self.push_status())
         self.push_status()
         if wait:
+            result_status = "cancelled"
             with contextlib.suppress(asyncio.CancelledError):
-                await task
+                result_status = await task
+            # Textual uses eager tasks: _turn can finish before InFlight is assigned.
+            if self.inflight is not None and self.inflight.turn_id == turn_id:
+                self.inflight.result_status = result_status
         return self._turn_tools.pop(turn_id, [])
 
     def _meta(self, inputs: TurnInputs, ctx: AssembledContext) -> TurnMeta:
@@ -1546,6 +1734,12 @@ class Engine:
                 "plan_title": plan.title if plan else "",
                 "next_step": f"step {nxt.position}: {nxt.title}" if nxt else "",
                 "step_position": nxt.position if nxt else 1,
+                "answer_checks": [
+                    c for c in lesson.verifier_params.get("checks", []) if c.get("type") == "learner_answer"
+                ]
+                if lesson
+                else [],
+                "open_question": self.session.open_questions[0] if self.session.open_questions else "",
             },
         )
 
@@ -1575,7 +1769,7 @@ class Engine:
         tools: list[ToolSpec] | None = None,
         out_tokens: int = 1024,
         visible: bool = True,
-    ) -> None:
+    ) -> str:
         label = MOCK_LABEL if not self.provider.makes_network_calls else f"{self.provider.name} · {self.provider.model}"
         meta = self._meta(inputs, ctx)
         text_parts: list[str] = []
@@ -1667,7 +1861,7 @@ class Engine:
                     "info",
                 )
             self.push_status()
-            return
+            return status
         if visible:
             self.last_reply = "".join(text_parts)
             self.ui.tutor_end(turn_id, status, note)
@@ -1687,6 +1881,7 @@ class Engine:
             if call.name not in CALLER_HANDLED_TOOLS:
                 await self._handle_tool(call, trigger)
         self.push_status()
+        return status
 
     async def _handle_tool(self, call: ToolCall, trigger: Trigger) -> None:
         parsed = actions.validate(call)

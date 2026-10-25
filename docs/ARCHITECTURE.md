@@ -103,6 +103,8 @@ repeated failure, exercise result), never per keystroke.
    closing tags neutralised).
 6. Tool results (from trusted verifiers, labelled).
 
-Model output can only *propose* actions (`propose_memory`, `request_check`).
-The engine validates and checks permissions. A model saying "you passed" is
-never stored as evidence.
+Model output can only propose validated actions, including `propose_memory`,
+`request_check`, and `interpret_reply`. The engine checks permissions for execution.
+Semantic interpretations are stored as model-inferred, unverified explanation or
+transfer evidence, distinct from trusted checker results. Execution alone does not
+establish independent understanding. Pending questions persist in session state.

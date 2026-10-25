@@ -1,8 +1,8 @@
 """The tutor pane: a Textual app.
 
 - Uses the terminal's own colours, so it matches Neovim and the shell beside it.
-- A header shows the subject, the current step, and where you are in it
-  (learn, try, check). The line under the header fills up as steps get done.
+- A header shows the subject and current step. Teaching stages stay internal.
+  The line under the header fills up as steps get done.
 - Tutor replies stream in as Markdown (readable code blocks).
 - While the tutor works, a live line under the conversation says “Thinking…”
   (no words yet) or “Writing…”, with the time so far. It goes when the reply
@@ -49,7 +49,7 @@ TRIGGER_WORDS = {
     "explain": "explanation",
     "lesson_intro": "lesson",
     "prediction": "your prediction",
-    "verification": "check",
+    "verification": "feedback",
     "review": "review",
     "review_step": "review",
     "repeated_failure": "noticed a problem",
@@ -66,27 +66,10 @@ STATUS_WORDS = {
     "cut_off": ("!", "cut short", "$warning"),
     "error": ("✗", "error", "$error"),
 }
-STAGES = (("learn", "explain"), ("try", "attempt"), ("check", "verified"))
 SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 
 
 # ---------------------------------------------------------------- what the header and hints say
-def stage_segments(stage: str | None) -> list[Segment]:
-    """learn → try → check, marking what is done (✓), current (●) and to come (○)."""
-    index = {"explain": 0, "attempt": 1, "verified": len(STAGES)}.get(stage or "", -1)
-    out: list[Segment] = []
-    for i, (word, _) in enumerate(STAGES):
-        if out:
-            out.append(("  ", ""))
-        if i < index:
-            out.append((f"✓ {word}", "dim"))
-        elif i == index:
-            out.append((f"● {word}", "bold $accent"))
-        else:
-            out.append((f"○ {word}", "dim"))
-    return out
-
-
 def header_segments(info: StatusInfo | None) -> tuple[list[Segment], list[Segment], list[Segment], list[Segment]]:
     """(subject, where in the plan, step, stage) for the two header lines."""
     if info is None:
@@ -114,7 +97,7 @@ def header_segments(info: StatusInfo | None) -> tuple[list[Segment], list[Segmen
         [(info.subject, "bold")],
         [(f"step {info.step} of {info.steps}", "dim")],
         step,
-        stage_segments(info.step_stage if info.step_stage != "verified" else None),
+        [],  # teaching stages stay internal; the conversation carries the learner forward
     )
 
 
@@ -133,7 +116,9 @@ def input_hints(info: StatusInfo | None) -> tuple[str, str]:
     if info.step is None:
         return "Say “new subject:” and a topic, or ask for a review", f"just type · {quit_}"
     if info.step_stage == "explain":
-        return "Your prediction: what do you think will happen?", f"answer in your own words · “skip” · {quit_}"
+        return "Reply in your own words, or ask a question", f"Enter send · “hint” if stuck · {quit_}"
+    if info.step_stage == "reflect":
+        return "Explain what happened in your own words", f"Enter send · “hint” if stuck · {quit_}"
     if info.step_stage == "attempt":
         return "Tell me when you are done, or ask a question", f"“done” to check · “hint” if stuck · {quit_}"
     return "Say “next” to start this step, or ask a question", f"“next” to start · “show the plan” · {quit_}"

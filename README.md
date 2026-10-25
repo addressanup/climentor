@@ -6,7 +6,7 @@ learn by doing.
 ```
 ┌─ Mentor ───────────────────────┬─ Editor · nvim ─────────────────┐
 │ C++ from the very basics       │                                 │
-│ Hello, C++    ● learn ○ try ○ c│  your code                      │
+│ Hello, C++                     │  your code                      │
 │ ━━━━━━━━━━──────────────────── │                                 │
 │ Mentor · lesson                ├─ Shell · zsh ───────────────────┤
 │ New words: …                   │                                 │
@@ -20,14 +20,17 @@ learn by doing.
 - **You choose what to learn.** The tutor asks "What would you like to
   learn?", turns your answer (say, "C++ from the very basics") into a
   step-by-step plan, and you accept or change it.
-- **You do the work.** For each step it explains every new word and symbol,
-  asks you to predict, gives small hints, and checks results with trusted code.
+- **You do the work.** It explains one idea, shows an example, and asks one
+  natural question. Reply in your own words; it accepts synonyms, gives a small
+  correction when needed, and continues into the next idea. Trusted checks stay
+  in the background.
 - **It watches only what you allow:** the panes of its own tmux session and
   your practice folder (`~/cli-mentor-workspace`). Pause any time.
 - **It remembers** your goals, what you have shown you can do, and where you
   stopped. Its own guesses stay "proposed" until you confirm them.
-- **Honest:** status words show how fresh its view is; it never claims you
-  passed unless a checker says so.
+- **Honest:** status words show how fresh its view is. Execution results come
+  from trusted code; judgments about your explanations stay labelled as model
+  inferences. A successful run alone does not establish understanding.
 
 Status: working first release for macOS (Apple Silicon). See
 [docs/FEATURES.md](docs/FEATURES.md) for what is done and what is planned.
@@ -60,7 +63,7 @@ ticks a box, Esc goes back. Over SSH or in scripts, use `mentor init --plain`.
 Your first session starts with a short tour of the screen. Then the tutor asks
 "What would you like to learn?" in the tutor pane (left). It proposes a plan;
 reply **yes** to start. The header always shows the subject, the step you are
-on, and where you are in it (learn, try, check). `/tour` shows the tour again.
+on. Teaching stages stay in the background. `/tour` shows the tour again.
 While the tutor works, the last line says "Thinking…" or "Writing…" with the
 seconds so far; when that line goes, the reply is complete. Esc stops a reply.
 Each subject gets its own folder and conversation. Next time, `mentor start`
@@ -103,7 +106,7 @@ colour is hard to read, set `CLI_MENTOR_THEME=light` (or `dark`).
 | Where | What to type |
 |---|---|
 | Terminal | `mentor start`, `mentor resume`, `mentor stop`, `mentor sessions` |
-| Tutor pane | Plain English. "done" when you finish (your work is checked), "hint" if you are stuck, "next" to move on, or any question. No commands needed |
+| Tutor pane | Plain English. Answer in your own words, say "done" after hands-on work, or ask for help. The tutor continues after understanding; "next" remains an optional shortcut |
 
 Optional shortcuts and the full list: [docs/COMMANDS.md](docs/COMMANDS.md) or `/help`.
 

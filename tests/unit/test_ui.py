@@ -100,8 +100,8 @@ async def test_ui_lesson_approval_and_cancel(ws: Path) -> None:
         assert list(ws.glob("*/01-*/hello.cpp"))
         assert "New words" in texts(app)
         assert line(app, "#subject") == "C++ from the very basics" and line(app, "#where") == "step 1 of 3"
-        assert "Hello, C++" in line(app, "#step") and "● learn" in line(app, "#stages")
-        assert "prediction" in str(app.query_one("#input", PromptInput).placeholder)
+        assert "Hello, C++" in line(app, "#step") and line(app, "#stages") == ""
+        assert "own words" in str(app.query_one("#input", PromptInput).placeholder)
         slow.behaviour.chunk_delay = 0.05
         app.query_one("#input").text = "/explain"  # type: ignore[attr-defined]
         await pilot.press("enter")

@@ -169,7 +169,10 @@ async def test_cpp_step_hint_check_and_advance(ws: Path) -> None:
         plan = eng.plans.active()
         assert plan is not None and plan.current_step == "s2"
         nxt = ui.last_turn("verification")
-        assert nxt is not None and "Next is **step 2: Variables and types**" in nxt.text
+        assert nxt is not None and "How would you print two lines?" in nxt.text
+        assert eng.session.exercise_stage == "reflect"
+        await eng.learner_message("I would print another message with a newline")
+        assert eng.lesson() is not None and eng.lesson().title == "Variables and types"  # type: ignore[union-attr]
     finally:
         await eng.stop()
 
@@ -308,8 +311,8 @@ async def test_whole_plan_in_plain_english_without_commands(ws: Path) -> None:
         await eng.learner_message("I think I'm done")  # runs the check (asks once to run the code)
         assert any("Run your code" in q for q, _ in ui.questions)
         done = ui.last_turn("verification")
-        assert done is not None and "Say **next**" in done.text and "/lesson" not in done.text
-        await eng.learner_message("next")
+        assert done is not None and "How would you print two lines?" in done.text and "/lesson" not in done.text
+        await eng.learner_message("I would print a second message with a newline")
         assert eng.lesson().title == "Variables and types"  # type: ignore[union-attr]
         await eng.learner_message("skip")  # no prediction this time
         assert eng.session.exercise_stage == "attempt"
@@ -318,7 +321,6 @@ async def test_whole_plan_in_plain_english_without_commands(ws: Path) -> None:
         assert not eng.store.conn.execute("SELECT 1 FROM skill_evidence WHERE result = 'fail'").fetchall()
         await eng.learner_message("int")  # the right answer, just typed
         assert eng.plans.active().current_step == "s3"  # type: ignore[union-attr]
-        await eng.learner_message("ready")
         await eng.learner_message("skip")
         assert eng.lesson().title == "Reading code aloud"  # type: ignore[union-attr]
         mock.behaviour.tool_calls = [ToolCall("assess_step", {"verdict": "complete", "feedback": "Clear."})]
@@ -342,12 +344,11 @@ async def test_tutor_runs_the_check_from_a_sentence(ws: Path) -> None:
         await eng.skip_step()
         await eng.learner_message("let's go")
         await eng.skip_prediction()
-        # The sentence is not the answer itself; the tutor reads it and passes on just the answer.
-        mock.behaviour.tool_calls = [ToolCall("request_check", {"answer": "int"})]
+        # The tutor interprets the sentence without replacing it with a canonical answer.
         await eng.learner_message("I am pretty sure whole numbers are stored in an int")
         assert eng.plans.active().current_step == "s3"  # type: ignore[union-attr]
         check_turn = next(r for r in mock.requests if r.meta and r.meta.learner_text.startswith("I am pretty"))
-        assert [t.name for t in check_turn.tools or []] == ["propose_memory", "request_check"]
+        assert [t.name for t in check_turn.tools or []] == ["interpret_reply"]
     finally:
         await eng.stop()
 
@@ -575,8 +576,8 @@ async def test_later_sessions_offer_to_continue(ws: Path) -> None:
     try:
         welcome = ui2.last_turn("session_start")
         assert welcome is not None and "Welcome back" in welcome.text
-        assert "C++ from the very basics" in welcome.text and "step 1 of 3: Hello, C++" in welcome.text
-        assert "Say **continue**" in welcome.text and "/lesson" not in welcome.text
+        assert "Hello, C++" in welcome.text and eng2.session.open_questions[0] in welcome.text
+        assert "Say **continue**" not in welcome.text and "/lesson" not in welcome.text
         assert eng2.session.hint_level == 1
         attempt = eng2.evidence.current_attempt(eng2.lesson().id)  # type: ignore[union-attr]
         assert attempt is not None and attempt.hints_used == 1

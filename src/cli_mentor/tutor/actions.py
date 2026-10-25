@@ -22,7 +22,7 @@ class ProposeMemory(BaseModel):
 class RequestCheck(BaseModel):
     model_config = ConfigDict(extra="forbid")
     reason: str = Field(default="", max_length=200)
-    # The learner's answer to the step's question, in a few words of their own (trusted code compares it).
+    # Legacy shortcut for factual checks; ordinary conversation uses interpret_reply.
     answer: str = Field(default="", max_length=200)
 
 
@@ -40,6 +40,35 @@ class AssessStep(BaseModel):
     feedback: str = Field(default="", max_length=600)
 
 
+class InterpretReply(BaseModel):
+    """A semantic reading of the actual learner reply, never an execution check."""
+
+    model_config = ConfigDict(extra="forbid")
+    verdict: Literal["understood", "needs_work", "clarification", "no_answer"]
+    feedback: str = Field(min_length=1, max_length=600)
+    follow_up: str = Field(default="", max_length=400)
+    independent: bool = Field(
+        default=False,
+        description="True only for correct application or transfer without a leading hint or supplied answer. "
+        "Repeating an example, guessing, or a successful run alone is not independent understanding.",
+    )
+    answers_task: bool = Field(
+        default=False,
+        description="For a prediction on a concept-only step: true if this reply also answers the task's "
+        "concept question, so the learner is not asked to repeat the same answer.",
+    )
+
+
+REPLY_TOOL = ToolSpec(
+    "interpret_reply",
+    "Read the learner's own words for meaning, accepting synonyms and paraphrases. Return understood, "
+    "needs_work (correct only the misconception and ask a smaller question), clarification (answer their "
+    "question without consuming the pending answer), or no_answer (no usable answer arrived; ask again). "
+    "Give brief, friendly feedback, never a score or pass/fail report. Never invent an answer.",
+    InterpretReply.model_json_schema(),
+)
+
+
 ASSESS_TOOL = ToolSpec(
     "assess_step",
     "Give your verdict on the learner's work for a step that has no automatic check: 'complete' or "
@@ -49,7 +78,7 @@ ASSESS_TOOL = ToolSpec(
 
 START_TOOL = ToolSpec(
     "start_step",
-    "Start the next step of the plan. Call it when the learner says, in any words, that they are ready to go on.",
+    "Continue into the next idea once the current idea is understood, or when the learner asks to move on.",
     StartStep.model_json_schema(),
 )
 
@@ -69,12 +98,13 @@ TOOLS: list[ToolSpec] = [
 ]
 
 
-def validate(call: ToolCall) -> ProposeMemory | RequestCheck | AssessStep | StartStep | None:
+def validate(call: ToolCall) -> ProposeMemory | RequestCheck | AssessStep | StartStep | InterpretReply | None:
     models: dict[str, type[BaseModel]] = {
         "propose_memory": ProposeMemory,
         "request_check": RequestCheck,
         "assess_step": AssessStep,
         "start_step": StartStep,
+        "interpret_reply": InterpretReply,
     }
     model = models.get(call.name)
     if model is None:

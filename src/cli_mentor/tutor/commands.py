@@ -6,7 +6,6 @@ import shlex
 import time
 from enum import Enum
 
-from ..memory.evidence import ASSISTANCE_LABELS
 from ..memory.privacy_ops import delete_observations
 from ..memory.profile import INTERVENTION_CHOICES, INTERVENTION_KEY
 from ..permissions import DESCRIPTIONS, Capability
@@ -65,13 +64,6 @@ move on, “skip” to skip, “show the plan”, or “new subject: <topic>”.
 Keys: **Enter** sends · **Ctrl+J** or **Alt+Enter** adds a new line · **Esc** cancels a reply ·
 **Ctrl+Q** quits · in tmux, **Ctrl+b** then an arrow key moves between panes, **Ctrl+b z** zooms a pane.
 """
-
-STATE_LABELS = {
-    "introduced": "introduced",
-    "practiced_with_assistance": "practised with help",
-    "demonstrated_independently": "done on your own",
-    "demonstrated_new_context": "done on your own in a new context",
-}
 
 
 class Result(Enum):
@@ -209,33 +201,23 @@ async def _review(engine: Engine) -> None:
 def _progress(engine: Engine) -> None:
     states = engine.evidence.skill_states()
     if not states:
-        engine.ui.note("No skill evidence yet. Finish an exercise with `/check` to start your record.")
+        engine.ui.note("We have not built up a learning record yet. Your work and replies will build it as we go.")
         return
     now = time.time()
-    lines = [
-        "**Your skills** (from trusted checks; no percentages, because we have no model that justifies one)",
-        "",
-    ]
-    for s in states:
-        due = (
-            " · **due for review**"
-            if s.due(now)
-            else (f" · review {_fmt_time(s.next_review_at)}" if s.next_review_at else "")
-        )
-        lines.append(
-            f"- `{s.skill}`: {STATE_LABELS[s.state]} — {s.independent_passes} on your own, "
-            f"{s.assisted_passes} with help, {s.failures} not yet{due}"
-        )
-    attempts = engine.store.conn.execute(
-        "SELECT exercise_id, status, max_assistance, hints_used, solution_shown FROM attempts ORDER BY started_at DESC LIMIT 8"
-    ).fetchall()
-    if attempts:
-        lines += ["", "**Recent attempts**"]
-        for a in attempts:
-            lines.append(
-                f"- {a['exercise_id']}: {a['status']}, most help: {ASSISTANCE_LABELS[a['max_assistance']]}, hints: {a['hints_used']}"
-            )
-    engine.ui.note("\n".join(lines))
+    lines = ["Here is what your work and explanations suggest so far."]
+    descriptions = {
+        "introduced": "We have introduced",
+        "practiced_with_assistance": "You have practised with help",
+        "demonstrated_independently": "You have used on your own",
+        "demonstrated_new_context": "You have applied in a new setting",
+    }
+    for state, description in descriptions.items():
+        names = [s.skill.replace("_", " ").replace(".", " ") for s in states if s.state == state]
+        if names:
+            lines.append(description + ": " + ", ".join(names) + ".")
+    if any(s.due(now) for s in states):
+        lines.append("Some of these ideas are ready to revisit. Ask me for a review whenever you like.")
+    engine.ui.note("\n\n".join(lines))
 
 
 def _profile(engine: Engine, args: list[str], rest: str) -> None:
