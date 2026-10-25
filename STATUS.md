@@ -2,6 +2,10 @@
 
 Last updated: 2026-10-25
 
+Public repository: https://github.com/addressanup/climentor (`origin`, default branch `main`).
+The first GitHub CI run has started; its result is not yet verified:
+https://github.com/addressanup/climentor/actions/runs/40162492577
+
 ## Conversational tutoring change
 
 Scope: replace answer-key routing and visible assessment reports with short, continuous tutoring.
@@ -29,7 +33,7 @@ Silicon). What is done and what is planned: `docs/FEATURES.md`.
 - Phase 3: profile, evidence, skill states, review schedule, resume,
   3 exercises per track — done.
 - Phase 4: permissions, privacy/deletion, backpressure, stale-advice handling,
-  recovery, end-to-end tests, CI file, docs — done (CI not yet run on GitHub).
+  recovery, end-to-end tests, CI file, docs — done (first GitHub CI run in progress).
 
 ## Environment used
 - macOS 27.0.1, Apple Silicon (arm64)
@@ -208,7 +212,7 @@ the first three steps of a C++ plan, with DeepSeek (see the real-model test abov
 - Live provider calls: DeepSeek (OpenAI-compatible `base_url`) tested end to end; Anthropic, OpenAI itself
   and the ChatGPT plan not yet (no key or sign-in here). SDK code paths are tested offline.
 - Linux: not verified; CI Linux job is marked experimental.
-- CI workflow written but never run (no git remote).
+- GitHub CI has started; a successful hosted run has not yet been verified.
 - zsh only; REPL input is not observable.
 - Learner code runs on the host (limits, not a sandbox).
 - Git/PostgreSQL/debugging/other-language tracks: extension routes only.
@@ -218,5 +222,5 @@ the first three steps of a C++ plan, with DeepSeek (see the real-model test abov
 1. Run a live test with your key:
    `CLI_MENTOR_LIVE_ANTHROPIC_KEY=... CLI_MENTOR_LIVE_ANTHROPIC_MODEL=<id> uv run pytest -m live`
 2. Try a real session: `uv run mentor init` (choose your provider), then `uv run mentor start`.
-3. Push to GitHub and check the CI run.
+3. Check the first GitHub CI run.
 4. Expand conversational transfer reviews, add a Git track, and age-based log cleanup.
