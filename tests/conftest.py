@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 import shutil
 import tempfile
+import uuid
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -62,6 +63,8 @@ def mentor_env(tmp_path: Path, short_tmp: Path, monkeypatch: pytest.MonkeyPatch)
         "CLI_MENTOR_HOME": str(home),
         "CLI_MENTOR_RUNTIME_DIR": str(short_tmp / "run"),
         "PYTHON_KEYRING_BACKEND": "keyring.backends.null.Keyring",
+        # CLI commands ask tmux about sessions: never the learner's real `cli-mentor` server.
+        "CLI_MENTOR_TMUX_SOCKET": f"cmtest-{uuid.uuid4().hex[:10]}",
     }
     for key, value in env.items():
         monkeypatch.setenv(key, value)

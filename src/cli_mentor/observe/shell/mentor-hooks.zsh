@@ -95,9 +95,11 @@ precmd_functions=(_mentor_precmd ${precmd_functions:#_mentor_precmd})
 
 # Extra Neovim instances started from this shell also get the session plugin.
 if [[ -n $_mentor_nvim_rtp ]]; then
+  # The plugin folder is passed in the environment: `set rtp^=<path>` breaks on a space in the path.
   nvim() {
-    CLI_MENTOR_SOCK=$_mentor_sock CLI_MENTOR_TOKEN_FILE=$_mentor_token_file \
-      command nvim --cmd "set rtp^=$_mentor_nvim_rtp" --cmd "lua require('cli_mentor').start()" "$@"
+    CLI_MENTOR_SOCK=$_mentor_sock CLI_MENTOR_TOKEN_FILE=$_mentor_token_file CLI_MENTOR_NVIM_RTP=$_mentor_nvim_rtp \
+      command nvim --cmd "lua vim.opt.rtp:prepend(vim.env.CLI_MENTOR_NVIM_RTP)" \
+      --cmd "lua require('cli_mentor').start()" "$@"
   }
 fi
 

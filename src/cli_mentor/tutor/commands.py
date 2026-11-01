@@ -379,24 +379,10 @@ def _permissions(engine: Engine, args: list[str]) -> None:
 
 
 def _context(engine: Engine) -> None:
-    from .context import TurnInputs
-
-    inputs = TurnInputs(
-        trigger=Trigger.LEARNER_MESSAGE,
-        mode=engine.session.mode,
-        session_id=engine.session_id,
-        lesson=engine.lesson(),
-        stage=engine.session.exercise_stage,
-        observation_allowed=not engine.paused and engine.observing,
-        exercise_dir=engine.exercise_dir(),
-        goal=engine.session.goal,
-    )
-    settings = engine.config.provider_settings(engine.provider.name)  # type: ignore[arg-type]
-    ctx = engine.assembler.build(
-        inputs,
-        max_context_tokens=settings.max_context_tokens,
-        max_output_tokens=settings.max_output_tokens,
-    )
+    # The same inputs and limits as a real reply to a message, so this shows what is really sent.
+    inputs = engine.turn_inputs(Trigger.LEARNER_MESSAGE)
+    max_context, out_tokens = engine.token_budget()
+    ctx = engine.assembler.build(inputs, max_context_tokens=max_context, max_output_tokens=out_tokens)
     engine.ui.note("```text\n" + ctx.render_for_display().replace("```", "ʼʼʼ") + "\n```")
 
 

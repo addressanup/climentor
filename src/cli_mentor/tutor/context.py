@@ -276,15 +276,17 @@ class ContextAssembler:
             out.append(f"Running now: {redact_text(c.command)}")
         shell_panes = [p for p in st.panes.values() if p.snapshot or p.tail]
         for pane in shell_panes[:2]:
+            # Redact the whole block first, then cut: a private key spans many lines.
             if pane.snapshot:
-                lines = [ln for ln in pane.snapshot if not is_password_prompt(ln)][-b.snapshot_lines :]
+                kept = "\n".join(ln for ln in pane.snapshot if not is_password_prompt(ln))
+                lines = redact_text(kept).split("\n")[-b.snapshot_lines :]
                 taken = time.strftime("%H:%M:%S", time.localtime(pane.snapshot_at or now))
                 out.append(f"Screen of pane {pane.pane_id} (rendered snapshot taken {taken}; NOT exact history):")
-                out += [f"  {redact_text(ln)}" for ln in lines]
+                out += [f"  {ln}" for ln in lines]
             if pane.tail and b.tail_chars:
-                tail = pane.tail[-b.tail_chars :]
+                tail = redact_text(pane.tail)[-b.tail_chars :]
                 out.append(f"Output stream of pane {pane.pane_id} since then (approximate, colours removed):")
-                out += [f"  {redact_text(ln)}" for ln in tail.splitlines()[-40:]]
+                out += [f"  {ln}" for ln in tail.splitlines()[-40:]]
         ed = st.editor
         if st.buffers or ed.mode:
             mode_names = {

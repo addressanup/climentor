@@ -24,7 +24,7 @@ The shell pane is observed wherever you `cd` (command records), but file
 | Raw observations (redacted) | same database, `events` table | 7 days (configurable) |
 | Conversation text | same database, `messages` table | 30 days (configurable) |
 | Logs (metadata only, keys masked) | `~/.local/state/cli-mentor/logs/` | Rotated at 2 MB, 3 old files |
-| Session token, socket, zsh wrapper | `$TMPDIR/cli-mentor-<uid>/<session>/` | Removed when the session ends |
+| Session token, socket, zsh wrapper | `$TMPDIR/cli-mentor-<uid>/<session>/` (or `$CLI_MENTOR_RUNTIME_DIR/cm/<session>/`); one folder per session | Removed when the session ends |
 | API keys | macOS Keychain, service `cli-mentor` | Until `mentor key delete <provider>` |
 | ChatGPT sign-in (tokens, app id, email) | macOS Keychain, service `cli-mentor`, account `chatgpt` | Tokens until `mentor logout`; app id and email until `mentor logout --forget` |
 | Computer id for ChatGPT sign-in (random, not about you) | `~/.local/share/cli-mentor/chatgpt-host-id` | Until you delete it |
@@ -64,9 +64,15 @@ pause is replayed, and the tutor is told that command history has a gap.
 ## Redaction
 
 Best effort, never a guarantee. Patterns cover common API keys and tokens,
-private key blocks, `PASSWORD=...`-style assignments, `--password` flags,
-`Authorization:` headers, and credentials in URLs. Capturing less comes first;
-redaction is the second line.
+private key blocks (also a key body whose first line has scrolled away),
+`PASSWORD=...`-style assignments, `--password` flags, `Authorization:` headers,
+and credentials in URLs. Screens and files are redacted as whole blocks before
+they are cut to size, so a key that spans many lines is caught. Capturing less
+comes first; redaction is the second line.
+
+The trusted checker compares your files' exact text on this Mac (so a correct
+`password = "..."` line passes its check). That exact text is never stored or
+sent; what the tutor sees is redacted as above.
 
 ## Deleting data
 

@@ -27,10 +27,17 @@ class ScrubFilter(logging.Filter):
         return True
 
 
+class ScrubFormatter(logging.Formatter):
+    """Scrubs the finished line, including tracebacks (the filter alone only sees the message)."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        return scrub_keys(super().format(record), _registered_secrets)
+
+
 def setup_logging(log_file: Path, level: int = logging.INFO) -> None:
     log_file.parent.mkdir(parents=True, exist_ok=True)
     handler = logging.handlers.RotatingFileHandler(log_file, maxBytes=2_000_000, backupCount=3, encoding="utf-8")
-    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+    handler.setFormatter(ScrubFormatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
     handler.addFilter(ScrubFilter())
     root = logging.getLogger("cli_mentor")
     root.setLevel(level)

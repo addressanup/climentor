@@ -24,9 +24,15 @@ class SetupPlan:
     to_create: list[tuple[Path, str | None]] = field(default_factory=list)  # (path, content|None=dir)
     existing: list[Path] = field(default_factory=list)
 
-    def describe(self) -> str:
+    def describe(self, preview_lines: int = 15) -> str:
+        """What will be created, with the start of each file: the tutor wrote it, and it may run later."""
         lines = [f"Folder: {self.workdir}"]
-        lines += [f"  create {p.relative_to(self.workdir)}" for p, _c in self.to_create]
+        for p, content in self.to_create:
+            lines.append(f"  create {p.relative_to(self.workdir)}")
+            rows = (content or "").splitlines()
+            lines += [f"    │ {row}" for row in rows[:preview_lines]]
+            if len(rows) > preview_lines:
+                lines.append(f"    │ … {len(rows) - preview_lines} more lines")
         lines += [f"  keep existing {p.relative_to(self.workdir)}" for p in self.existing]
         return "\n".join(lines)
 

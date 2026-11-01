@@ -401,6 +401,7 @@ class MentorApp(App[str]):
         self._placeholder = ""
         self._working_since: float | None = None  # when the current “Thinking…” / “Writing…” began
         self._last_status: StatusInfo | None = None
+        self._handling = False  # one learner message at a time; Esc stops the current one
         self.register_theme(mentor_theme(terminal_is_light() if light is None else light))
         self.theme = "cli-mentor"
 
@@ -558,15 +559,21 @@ class MentorApp(App[str]):
     # ------------------------------------------------------------ input
     async def on_prompt_input_submitted(self, message: PromptInput.Submitted) -> None:
         text = message.text
+        if self._handling:
+            # Two messages handled at once stepped on each other (and paid for the same work twice).
+            self._main("#input", PromptInput).text = text  # give back what they typed
+            self.note("I'm still on your last message. Press Esc to stop it, then send this.", "warn")
+            return
+        self._handling = True
         self._append(Entry("learner", text))
         self._log_view().anchor()  # you just spoke: follow the conversation again, even if you had scrolled up
         self.run_worker(self._handle(text), exclusive=False, group="input")
 
     async def _handle(self, text: str) -> None:
         engine = self.engine
-        if engine is None:
-            return
         try:
+            if engine is None:
+                return
             if text.startswith("/"):
                 result = await commands.dispatch(engine, text)
                 if result == commands.Result.QUIT:
@@ -575,6 +582,8 @@ class MentorApp(App[str]):
                 await engine.learner_message(text)
         except Exception as exc:
             self.note(f"Something went wrong: {type(exc).__name__}: {exc}", "error")
+        finally:
+            self._handling = False
 
     # ------------------------------------------------------------ actions
     async def action_cancel(self) -> None:

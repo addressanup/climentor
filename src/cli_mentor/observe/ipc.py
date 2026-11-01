@@ -34,6 +34,7 @@ log = logging.getLogger(__name__)
 
 CLIENT_KINDS = frozenset({SourceKind.SHELL, SourceKind.NVIM})
 HELLO_TIMEOUT = 5.0
+SEND_TIMEOUT = 5.0  # a client that stops reading (a frozen Neovim) must not block us forever
 MAX_LINE = 2 * 1024 * 1024
 
 
@@ -155,10 +156,11 @@ class IpcServer:
                 continue
             try:
                 writer.write(data)
-                await writer.drain()
+                await asyncio.wait_for(writer.drain(), SEND_TIMEOUT)
                 sent += 1
-            except (ConnectionError, RuntimeError):
+            except (ConnectionError, RuntimeError, TimeoutError):
                 self._clients.pop(ident.conn_id, None)
+                writer.close()  # it reconnects and resends a snapshot when it is responsive again
         return sent
 
     def connected(self, kind: SourceKind | None = None) -> list[ClientIdentity]:

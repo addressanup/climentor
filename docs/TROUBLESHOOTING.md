@@ -4,7 +4,7 @@ Start with `mentor doctor`. It lists each problem with a fix.
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| `mentor: command not found` | Not installed on your PATH | Use `uv run mentor ...` from the project folder, or install it: `uv tool install --editable .` |
+| `mentor: command not found` | Not installed on your PATH | Use `uv run mentor ...` from the project folder, or install it with the locked versions (see the README: `uv export … -o /tmp/cli-mentor-constraints.txt`, then `uv tool install --editable . --constraints /tmp/cli-mentor-constraints.txt`) |
 | "You are already inside tmux" | `mentor start` would nest tmux | Open a new terminal window and run the printed command, or use `--nested` |
 | Status shows `○ observation off` | Observation was not approved | `/observe resume` |
 | Status shows `terminal disconnected` | The tmux observer lost its connection | It reconnects by itself; if not, `/observe pause` then `/observe resume` |
@@ -26,7 +26,9 @@ Start with `mentor doctor`. It lists each problem with a fix.
 | "That is a different ChatGPT account" | Signed in with another account than the first time | `mentor logout --forget`, then `mentor login` |
 | The browser never comes back after ChatGPT sign-in | The return page runs on `127.0.0.1` on this Mac; a browser on another computer cannot reach it | Sign in with a browser on the same Mac; press `c` in setup to copy the link |
 | macOS asks to allow Keychain access | First use of the stored key | Click "Allow" (or "Always Allow" for the Python that runs CLI Mentor) |
-| Socket path too long | Very long `$TMPDIR` | `export CLI_MENTOR_RUNTIME_DIR=/tmp/cm-$USER` |
+| Socket path too long | Very long `$TMPDIR` | `export CLI_MENTOR_RUNTIME_DIR=/tmp/cm-$USER`. CLI Mentor works in its own `cm` subfolder there and never changes or cleans up anything else in that folder |
+| "I'm still on your last message" | You sent a message while the tutor was still working on the previous one | Wait for it to finish, or press Esc to stop it; your text stays in the box, so just press Enter again |
+| "Settings file … has a problem" | `config.toml` has a typo or a value out of range | Fix the line it names, or run `mentor init` to rewrite the file |
 | Esc feels slow in Neovim | tmux escape delay | Our tmux config sets `escape-time 10`; your `~/.tmux.conf` may override it |
 | Python check says "timed out" | Infinite loop or long-running code | Fix the loop; checks stop after 10 seconds |
 

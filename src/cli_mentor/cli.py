@@ -12,7 +12,7 @@ from pathlib import Path
 
 from . import __version__
 from .apikeys import ENV_VARS, delete_api_key, get_api_key, set_api_key
-from .config import Config, load_config
+from .config import Config, ConfigError, base_url_problem, load_config
 from .curriculum.plans import PlanInfo, PlanStore
 from .db.store import Store, open_store
 from .doctor import format_results, run_checks
@@ -21,7 +21,7 @@ from .memory.notes import Notes
 from .memory.privacy_ops import delete_session, export_json
 from .memory.profile import Profile
 from .memory.sessions import Sessions
-from .paths import AppPaths
+from .paths import AppPaths, session_key
 
 PROVIDERS = ("mock", "chatgpt", "anthropic", "openai")
 
@@ -94,6 +94,9 @@ def _full_screen_setup(paths: AppPaths, args: argparse.Namespace, *, then_start:
 def cmd_init(args: argparse.Namespace) -> int:
     from .onboarding import run_init
 
+    if args.base_url and (problem := base_url_problem(args.base_url)):
+        print(f"--base-url {args.base_url}: {problem}")
+        return 2
     paths = _paths()
     if not args.yes and not args.plain and _interactive():
         if _full_screen_setup(paths, args, then_start=False):
@@ -417,7 +420,7 @@ def cmd_export(args: argparse.Namespace) -> int:
 
 
 def cmd_delete_session(args: argparse.Namespace) -> int:
-    from .lifecycle import stop_workspace
+    from .lifecycle import editor_busy, stop_workspace
 
     paths = _paths()
     store = open_store(paths.db_file)
@@ -425,6 +428,11 @@ def cmd_delete_session(args: argparse.Namespace) -> int:
     info = sessions.find(args.session)
     if info is None:
         print("No session matches that id.")
+        return 1
+    busy = editor_busy(paths, info.id)  # deleting also closes the session's panes
+    if busy and not args.force:
+        print("Not deleting, because " + " and ".join(busy) + ".")
+        print("Save and quit Neovim (Esc, then :wq) first, or use `mentor delete-session --force`.")
         return 1
     what = "observations, transcript, model suggestions, usage" + (
         ", and learning evidence" if args.with_evidence else ""
@@ -587,7 +595,7 @@ def cmd_tutor(args: argparse.Namespace) -> int:
     if result == "end":
         import shutil
 
-        shutil.rmtree(paths.runtime_dir / info.id[:12], ignore_errors=True)  # token, zsh wrapper files
+        shutil.rmtree(paths.runtime_dir / session_key(info.id), ignore_errors=True)  # token, zsh wrapper files
         if in_tmux and tmux_session:
             tmux.kill_session(tmux_session)  # closes this pane too; nothing runs after this
     return 0
@@ -662,6 +670,7 @@ def build_parser() -> argparse.ArgumentParser:
     ds.add_argument("session")
     ds.add_argument("--with-evidence", action="store_true")
     ds.add_argument("--yes", action="store_true")
+    ds.add_argument("--force", action="store_true", help="also close the session if Neovim has unsaved work")
     ds.set_defaults(func=cmd_delete_session)
 
     k = sub.add_parser("key", help="manage API keys in the macOS Keychain")
@@ -693,6 +702,9 @@ def main(argv: list[str] | None = None) -> int:
     except KeyboardInterrupt:
         print("\nInterrupted.")
         return 130
+    except ConfigError as exc:
+        print(f"{exc}\n\nFix the file, or run `mentor init` to rewrite it. `mentor doctor` shows details.")
+        return 2
 
 
 if __name__ == "__main__":

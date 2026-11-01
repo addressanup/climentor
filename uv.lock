@@ -225,14 +225,14 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "anthropic", specifier = ">=1.10" },
-    { name = "httpx2", specifier = ">=2.10" },
+    { name = "anthropic", specifier = ">=1.10,<2" },
+    { name = "httpx2", specifier = ">=2.10,<3" },
     { name = "keyring", specifier = ">=25.0" },
-    { name = "openai", specifier = ">=3.20" },
-    { name = "pydantic", specifier = ">=2.10" },
+    { name = "openai", specifier = ">=3.20,<4" },
+    { name = "pydantic", specifier = ">=2.10,<3" },
     { name = "pyjwt", extras = ["crypto"], specifier = ">=2.15.1" },
     { name = "rich", specifier = ">=14.0" },
-    { name = "textual", specifier = ">=8.0" },
+    { name = "textual", specifier = ">=8.0,<9" },
     { name = "tomlkit", specifier = ">=0.13" },
 ]
 

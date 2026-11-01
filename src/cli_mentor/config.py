@@ -9,11 +9,29 @@ from __future__ import annotations
 import tomllib
 from pathlib import Path
 from typing import Literal
+from urllib.parse import urlsplit
 
 import tomlkit
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from .paths import write_private_file
+
+
+class ConfigError(RuntimeError):
+    """config.toml cannot be read. The message says which file and what is wrong."""
+
+
+def base_url_problem(value: str) -> str | None:
+    """Why a service address is unsafe, or None. Plain http would send the API key unencrypted."""
+    if not value:
+        return None
+    url = urlsplit(value)
+    if url.scheme == "https" and url.hostname:
+        return None
+    if url.scheme == "http" and url.hostname in ("localhost", "127.0.0.1", "::1"):
+        return None
+    return "Use an address that starts with https:// (plain http:// only for localhost)."
+
 
 ProviderName = Literal["mock", "anthropic", "openai", "chatgpt"]
 TeachingMode = Literal["guided", "practice", "project", "assessment", "review", "quiet"]
@@ -38,6 +56,14 @@ class ProviderSettings(_Model):
     # show an *estimated* cost. We never hard-code prices because they change.
     input_price_per_mtok: float | None = None
     output_price_per_mtok: float | None = None
+
+    @field_validator("base_url")
+    @classmethod
+    def _https_unless_local(cls, value: str) -> str:
+        problem = base_url_problem(value)
+        if problem:
+            raise ValueError(problem)
+        return value
 
 
 class TutorSettings(_Model):
@@ -98,9 +124,11 @@ HEADER = (
 def load_config(path: Path) -> Config:
     if not path.exists():
         return Config()
-    with path.open("rb") as fh:
-        data = tomllib.load(fh)
-    return Config.model_validate(data)
+    try:
+        with path.open("rb") as fh:
+            return Config.model_validate(tomllib.load(fh))
+    except (tomllib.TOMLDecodeError, ValidationError) as exc:
+        raise ConfigError(f"Your settings file {path} has a problem:\n{exc}") from None
 
 
 def save_config(config: Config, path: Path) -> None:
