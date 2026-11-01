@@ -238,3 +238,27 @@ async def test_ui_quit_end_session_warns_about_unsaved(ws: Path) -> None:
         await pilot.pause(0.1)
         assert app.is_running
     await asyncio.sleep(0)
+
+
+async def test_ui_handles_one_message_at_a_time(ws: Path) -> None:
+    slow = MockProvider()
+    slow.behaviour.chunk_delay = 0.05
+    app = MentorApp(lambda ui: make_engine(ws, ui=ui, provider=slow))  # type: ignore[arg-type]
+    async with app.run_test(size=(100, 40)) as pilot:
+        await answer_modal(pilot, "s")
+        await pilot.pause(0.2)
+        box = app.query_one("#input", PromptInput)
+        box.text = "/explain hello"
+        await pilot.press("enter")
+        await pilot.pause(0.2)  # the reply is still arriving
+        box.text = "a second message"
+        await pilot.press("enter")
+        await pilot.pause(0.1)
+        assert "still on your last message" in texts(app) and "Press Esc" in texts(app)
+        assert box.text == "a second message"  # given back, not lost
+        assert not [e for e in app.query(Entry) if e.kind == "learner" and e.text == "a second message"]
+        await pilot.press("escape")
+        await pilot.pause(0.3)
+        await pilot.press("enter")  # now it is accepted
+        await pilot.pause(0.3)
+        assert [e for e in app.query(Entry) if e.kind == "learner" and e.text == "a second message"]

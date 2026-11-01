@@ -7,12 +7,15 @@ We follow the XDG layout (the same one Neovim uses on macOS):
 - state:   ~/.local/state/cli-mentor/     (logs)
 - cache:   ~/.cache/cli-mentor/
 - runtime: $XDG_RUNTIME_DIR or $TMPDIR/cli-mentor-<uid>/  (sockets, tokens)
+           ``CLI_MENTOR_RUNTIME_DIR`` is used through its own ``cm`` subfolder,
+           so we never change or clean up a folder the learner chose.
 
 Set ``CLI_MENTOR_HOME`` to put everything under one folder (tests and demos).
 """
 
 from __future__ import annotations
 
+import hashlib
 import os
 import stat
 import tempfile
@@ -21,8 +24,19 @@ from dataclasses import dataclass
 from pathlib import Path
 
 APP = "cli-mentor"
+# Our own folder inside an explicit CLI_MENTOR_RUNTIME_DIR. Short, because socket paths are limited.
+RUNTIME_SUBDIR = "cm"
 # macOS limits Unix socket paths to 104 bytes (including the trailing NUL).
 MAX_SOCKET_PATH = 100
+
+
+def session_key(session_id: str) -> str:
+    """The session's runtime folder name: 12 characters, unique per session.
+
+    The first 12 characters of a session id are only the date and the 10-minute block,
+    so two sessions started close together used to share one socket and one token.
+    """
+    return hashlib.sha256(session_id.encode()).hexdigest()[:12]
 
 
 class UnsafeDirectoryError(RuntimeError):
@@ -107,10 +121,10 @@ class AppPaths:
         ensure_private_dir(self.runtime_dir)
 
     def session_runtime_dir(self, session_id: str) -> Path:
-        return ensure_private_dir(self.runtime_dir / session_id[:12])
+        return ensure_private_dir(self.runtime_dir / session_key(session_id))
 
     def socket_path(self, session_id: str) -> Path:
-        path = self.runtime_dir / session_id[:12] / "ipc.sock"
+        path = self.runtime_dir / session_key(session_id) / "ipc.sock"
         if len(str(path).encode()) > MAX_SOCKET_PATH:
             raise UnsafeDirectoryError(
                 f"Socket path is too long for macOS ({len(str(path))} bytes): {path}. "
@@ -122,7 +136,7 @@ class AppPaths:
 def _runtime_base(env: Mapping[str, str], fallback: Path | None) -> Path:
     explicit = env.get("CLI_MENTOR_RUNTIME_DIR")
     if explicit:
-        return Path(explicit).expanduser()
+        return Path(explicit).expanduser() / RUNTIME_SUBDIR  # our own subfolder, never the chosen folder itself
     xdg_runtime = env.get("XDG_RUNTIME_DIR")
     if xdg_runtime:
         return Path(xdg_runtime) / APP

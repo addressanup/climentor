@@ -6,15 +6,16 @@ readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "MIT" }
 authors = [{ name = "CLI Mentor contributors" }]
+# Upper bounds stop an install without the lock file from jumping to an untested major version.
 dependencies = [
-    "anthropic>=1.10",
-    "httpx2>=2.10",
+    "anthropic>=1.10,<2",
+    "httpx2>=2.10,<3",
     "keyring>=25.0",
-    "openai>=3.20",
-    "pydantic>=2.10",
+    "openai>=3.20,<4",
+    "pydantic>=2.10,<3",
     "pyjwt[crypto]>=2.15.1",
     "rich>=14.0",
-    "textual>=8.0",
+    "textual>=8.0,<9",
     "tomlkit>=0.13",
 ]
 

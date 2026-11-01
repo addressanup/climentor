@@ -58,7 +58,9 @@ class WorkspaceScope:
             return ScopeDecision(False, reason, resolved)
         return ScopeDecision(True, "in scope", resolved)
 
-    def read_text(self, path: str | Path, base: Path | None = None) -> FileRead:
+    def read_text(self, path: str | Path, base: Path | None = None, *, redact_secrets: bool = True) -> FileRead:
+        """Read an in-scope text file. ``redact_secrets=False`` is only for trusted local comparisons
+        (the checker); that text is never stored or sent anywhere."""
         decision = self.check(path, base)
         target = decision.resolved or Path(path)
         if not decision.allowed or decision.resolved is None:
@@ -72,7 +74,10 @@ class WorkspaceScope:
         if looks_binary(data):
             return FileRead(target, None, "binary file", size)
         digest = hashlib.sha256(data).hexdigest()
-        red = redact(data.decode("utf-8", errors="replace"))
+        text = data.decode("utf-8", errors="replace")
+        if not redact_secrets:
+            return FileRead(target, text, "ok", size, digest)
+        red = redact(text)
         return FileRead(target, red.text, "ok", size, digest, red.count)
 
     def list_files(self, folder: Path, limit: int = 200) -> list[str]:

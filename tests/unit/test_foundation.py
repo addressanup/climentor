@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from cli_mentor import apikeys
-from cli_mentor.config import Config, load_config, save_config
+from cli_mentor.config import Config, ConfigError, load_config, save_config
 from cli_mentor.db.store import Store, available_migrations, open_store
 from cli_mentor.logs import ScrubFilter, register_secret
 from cli_mentor.paths import AppPaths, UnsafeDirectoryError, ensure_private_dir
@@ -21,7 +21,7 @@ def test_paths_respect_cli_mentor_home(mentor_env: dict[str, str]) -> None:
     paths = AppPaths.from_env()
     paths.ensure()
     assert str(paths.config_dir).startswith(mentor_env["CLI_MENTOR_HOME"])
-    assert str(paths.runtime_dir) == mentor_env["CLI_MENTOR_RUNTIME_DIR"]
+    assert paths.runtime_dir == Path(mentor_env["CLI_MENTOR_RUNTIME_DIR"]) / "cm"  # our own subfolder
     for d in (paths.config_dir, paths.data_dir, paths.runtime_dir):
         assert stat.S_IMODE(d.stat().st_mode) == 0o700
 
@@ -74,7 +74,7 @@ def test_config_roundtrip(tmp_path: Path) -> None:
 def test_config_rejects_unknown_keys(tmp_path: Path) -> None:
     path = tmp_path / "config.toml"
     path.write_text('api_key = "sk-oops"\n')
-    with pytest.raises(ValueError):
+    with pytest.raises(ConfigError):
         load_config(path)
 
 

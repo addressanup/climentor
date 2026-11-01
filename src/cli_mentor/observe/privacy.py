@@ -26,6 +26,8 @@ _RULES: list[tuple[str, re.Pattern[str], str]] = [
         ),
         "[REDACTED-PRIVATE-KEY]",
     ),
+    # The body of a key whose BEGIN line scrolled away: three or more long base64 lines in a row.
+    ("key_body", re.compile(r"(?:^[A-Za-z0-9+/=]{60,}$\n?){3,}", re.M), "[REDACTED-KEY-BODY]\n"),
     ("aws_key_id", re.compile(r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b"), "[REDACTED-AWS-KEY]"),
     (
         "github_token",

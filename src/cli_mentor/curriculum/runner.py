@@ -140,6 +140,7 @@ class HostRunner:
     async def run_program(self, language: str, source: str, cwd: Path, stdin: str = "") -> tuple[RunResult, str]:
         """Compile (if needed) and run one source file. Returns (result, stage) where
         stage is "compile" or "run". Compiler flags are fixed here, never taken from lessons."""
+        source = "./" + source  # a file named like "-c..." must never be read as a flag
         if language == "python":
             return await self.run_python([source], cwd, stdin, isolated=False), "run"
         compiler = shutil.which("c++" if language == "cpp" else "cc")

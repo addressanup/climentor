@@ -88,6 +88,11 @@ class AnthropicProvider:
                 final = await stream.get_final_message()
         except anthropic.AnthropicError as exc:
             raise map_error(exc) from None
+        # The SDK does not wrap network errors that happen in the middle of a streamed reply.
+        except httpx2.TimeoutException:
+            raise ProviderError("timeout", "Anthropic: the reply stalled.") from None
+        except httpx2.HTTPError:
+            raise ProviderError("unavailable", "Lost the connection to Anthropic mid-reply.") from None
         for block in final.content:
             if block.type == "tool_use":
                 args = block.input if isinstance(block.input, dict) else {}

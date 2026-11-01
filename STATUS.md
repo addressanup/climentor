@@ -1,10 +1,52 @@
 # Status and handoff
 
-Last updated: 2026-10-25
+Last updated: 2026-11-01
 
 Public repository: https://github.com/addressanup/climentor (`origin`, default branch `main`).
 The first GitHub CI run has started; its result is not yet verified:
 https://github.com/addressanup/climentor/actions/runs/40162492577
+
+## Pre-launch review fixes (branch `fix/review-findings`, 2026-11-01)
+
+A code review found 19 problems. Each was first reproduced with a throwaway script in temp folders
+(fake keyring, private tmux sockets), then fixed, then covered by a regression test. Not committed yet.
+
+- Data loss: an explicit `CLI_MENTOR_RUNTIME_DIR` is now used through its own `cm` subfolder, and
+  cleanup deletes only folders that are exactly a session runtime folder (name and contents).
+- Sessions started within the same 10 minutes shared one socket and token (folder name was
+  `session_id[:12]`, only the date and 10-minute block); now `session_key()`, a 12-character hash.
+- Secrets: screens and stored snapshots are redacted as whole blocks before cutting (a private key's
+  body used to reach the model and SQLite); a rule hides a key body whose first line scrolled away.
+- Races: one trusted check at a time; a check result is dropped if the learner moved on while it ran
+  (it used to mark the next step done or leave "next" silent); automatic checks never cut off the
+  learner's reply; the tutor pane handles one message at a time (Esc first to send a new one).
+- Automatic checks run learner code only after the learner ran their program (`./prog`,
+  `python3 file.py`), not after `ls`/`cat`; file-only checks still run after any command.
+- Plans and steps are built without observed content; the file dialog shows starter-file contents;
+  the run-code dialog names the folder and mentions tutor-written starter files; sources are passed
+  as `./name`.
+- Any failure inside a turn closes the reply (it used to stay "Writing…" forever); Anthropic
+  mid-stream network errors become provider errors.
+- A session follows its own plan, not the global active plan (a second subject used to take over).
+- The checker compares exact file text (a correct `password = "..."` line used to fail).
+- Esc while preparing a step stops it (it used to start a second, paid attempt).
+- API keys from the shell that started tmux no longer reach new tmux windows; a restarted tutor gets them.
+- The Neovim plugin path is passed in `CLI_MENTOR_NVIM_RTP` (a space in the path broke `set rtp^=`).
+- `config.toml` errors print a clear message (no traceback); plain `http://` service addresses are
+  refused except for localhost.
+- Log tracebacks are scrubbed; `/context` uses the same inputs and limits as a real turn;
+  `mentor delete-session` refuses while Neovim is open (`--force` to override).
+- The README install uses the lock file (`uv tool install` ignores it; verified it installed
+  anthropic 2.3.0 instead of the locked 1.13.0). Major-version caps added; `uv lock` re-run with the
+  same `exclude-newer` date and the same package versions.
+- Load: a 400-character window replaces re-splitting the 16 KB pane tail on every output chunk
+  (measured 9,200 → 58,000 chunks/s); one resync per source at a time; IPC sends time out after 5 s.
+- Tests: `mentor_env` now gives each test a private `CLI_MENTOR_TMUX_SOCKET` (CLI tests used to ask
+  the real `cli-mentor` server about sessions).
+
+Still not done from the review: config schema migrations (`extra="forbid"`), CI actions pinned by
+tag, the session-count query on every turn, Keychain reads on every ChatGPT request. Not tested with a
+live model.
 
 ## Conversational tutoring change
 
@@ -48,13 +90,13 @@ pytest-asyncio 1.4.0, mypy 2.4.0, ruff 0.17.0, pynvim 0.6.0.
 
 ## Tests actually run (latest)
 
-Command: `uv run pytest -m "not live"` → **242 passed, 2 deselected** (2026-10-25,
-after the conversational tutoring changes).
+Command: `uv run pytest -m "not live"` → **269 passed, 2 deselected** (2026-11-01,
+after the pre-launch review fixes; 242 before them, all still passing).
 
 | Group | Count | What they use |
 |---|---|---|
-| `tests/unit` | 223 | Pure logic, real SQLite, real IPC socket, real Python subprocesses, Textual Pilot (tutor pane and full-screen setup), recorded semantic replies, real SDK parsing via `httpx2.MockTransport`, ChatGPT sign-in against a fake OpenAI server with a real local return page |
-| `tests/integration` | 17 | Real tmux (private sockets), real zsh with the hooks, real headless Neovim with the plugin |
+| `tests/unit` | 248 | Pure logic, real SQLite, real IPC socket, real Python subprocesses, Textual Pilot (tutor pane and full-screen setup), recorded semantic replies, real SDK parsing via `httpx2.MockTransport`, ChatGPT sign-in against a fake OpenAI server with a real local return page. Includes `test_review_fixes.py` (24) and the one-message-at-a-time Pilot test |
+| `tests/integration` | 19 | Real tmux (private sockets), real zsh with the hooks, real headless Neovim with the plugin. Includes `test_review_fixes_tools.py` (keys and new tmux windows; plugin path with a space) |
 | `tests/e2e` | 2 | The real `mentor` command, tmux, zsh, Neovim, and the Textual tutor pane, mock provider |
 | `tests/live` | 2 | **Not run** (skipped: needs your API key and model id) |
 

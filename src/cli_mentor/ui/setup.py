@@ -29,7 +29,7 @@ from textual.widgets.selection_list import Selection
 
 from ..apikeys import get_api_key, set_api_key
 from ..chatgpt_auth import PLAN_OFF, USAGE_URL, Account, ChatGPTAuth, SignInError
-from ..config import Config, ProviderName
+from ..config import Config, ProviderName, base_url_problem
 from ..db.store import open_store
 from ..memory.profile import Profile
 from ..onboarding import SetupAnswers, apply_answers, fetch_models, proposed_facts, server_address
@@ -503,8 +503,9 @@ class ModelStep(Step):
             return
         slot: ProviderName = "anthropic" if choice == "anthropic" else "openai"
         address = self.query_one("#address", Input).value.strip().rstrip("/")
-        if choice == "compatible" and not address.startswith(("https://", "http://")):
-            self.error([("✗ Type the service's address, starting with https://", "$error")])
+        problem = "Type the service's address, starting with https://" if not address else base_url_problem(address)
+        if choice == "compatible" and problem:
+            self.error([(f"✗ {problem}", "$error")])
             self.query_one("#address", Input).focus()
             return
         key_input = self.query_one("#key", Input)

@@ -19,6 +19,7 @@ from pathlib import Path
 
 import pytest
 
+from cli_mentor.paths import AppPaths, session_key
 from tests.conftest import require_tool
 
 pytestmark = pytest.mark.e2e
@@ -258,7 +259,7 @@ def test_acceptance_learning_flow(rig: Rig) -> None:
     assert leftovers == "", f"orphaned processes: {leftovers}"
     sid = r.session_id()
     assert r.db("SELECT status FROM sessions WHERE id=?", (sid,))[0][0] == "ended"
-    assert not (Path(r.env["CLI_MENTOR_RUNTIME_DIR"]) / sid[:12]).exists()
+    assert not (AppPaths.from_env(r.env).runtime_dir / session_key(sid)).exists()
 
 
 def test_restart_resume_and_provider_failure(rig: Rig) -> None:

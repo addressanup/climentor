@@ -84,7 +84,8 @@ class VerifyContext:
         return os.path.realpath(p)
 
     def read(self, relative: str) -> str | None:
-        return self.scope.read_text(self.workdir / relative).text
+        # Exact text: a correct `password = "..."` line must not fail because the secret filter changed it.
+        return self.scope.read_text(self.workdir / relative, redact_secrets=False).text
 
 
 class Verifier(Protocol):

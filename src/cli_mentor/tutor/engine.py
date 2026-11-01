@@ -96,6 +96,8 @@ log = logging.getLogger(__name__)
 
 NOT_PERSISTED = frozenset({"tmux.output", "nvim.cursor"})
 NO_STALE_NOTE = frozenset({Trigger.LESSON_INTRO, Trigger.PLAN, Trigger.PLAN_REVISE, Trigger.PREPARE_STEP})
+# Turns whose output becomes trusted lesson data: they never see untrusted observed content.
+UNTRUSTED_FREE = frozenset({Trigger.PLAN, Trigger.PLAN_REVISE, Trigger.PREPARE_STEP})
 # Every reply gets room to finish: wordy models (DeepSeek) cut off explanations and hints at 1024 tokens.
 MIN_REPLY_TOKENS = 3000
 CUT_OFF = frozenset({"length", "max_tokens", "max_output_tokens"})  # stop reasons that mean “ran out of room”
@@ -193,6 +195,8 @@ def _retry_note(tool: str, problem: str) -> str:
 def _redact_obj(value: Any) -> Any:
     if isinstance(value, str):
         return redact_text(value)
+    if isinstance(value, list) and value and all(isinstance(v, str) for v in value):
+        return redact_text("\n".join(value)).split("\n")  # lines of one screen or file: redact them together
     if isinstance(value, list):
         return [_redact_obj(v) for v in value]
     if isinstance(value, dict):
@@ -280,6 +284,7 @@ class Engine:
         self.ipc: IpcServer | None = None
         self.terminal: TerminalObserver | None = None
         self.inflight: InFlight | None = None
+        self.last_turn_status = "complete"  # status of the turn the latest run_turn() waited for
         self.turn_counter = 0
         self.ingest_index = 0
         self.last_activity = monotonic()
@@ -288,6 +293,8 @@ class Engine:
         self.telemetry_enabled: set[str] = set()
         self._rejected_buffers: set[tuple[str, int]] = set()
         self._tasks: set[asyncio.Task[Any]] = set()
+        self._check_lock = asyncio.Lock()  # one trusted check at a time
+        self._resyncing: set[SourceKind] = set()  # sources with a resync already on its way
         self._processor: asyncio.Task[None] | None = None
         self._deferred: asyncio.TimerHandle | None = None
         self._status_text = ""
@@ -540,12 +547,16 @@ class Engine:
         )
 
     def _request_resync(self, kind: SourceKind) -> None:
-        if self.paused:
-            return
+        if self.paused or kind in self._resyncing:
+            return  # one resync per source at a time: a burst of drops must not start thousands
         if kind == SourceKind.NVIM and self.ipc is not None:
-            self._spawn(self.ipc.send(SourceKind.NVIM, {"cmd": "resync"}))
+            task = self._spawn(self.ipc.send(SourceKind.NVIM, {"cmd": "resync"}))
         elif kind == SourceKind.TMUX and self.terminal is not None:
-            self._spawn(self.terminal.snapshot("gap"))
+            task = self._spawn(self.terminal.snapshot("gap"))
+        else:
+            return
+        self._resyncing.add(kind)
+        task.add_done_callback(lambda _t: self._resyncing.discard(kind))
 
     # ================================================================ hooks
     def exercise_dir(self) -> Path | None:
@@ -583,7 +594,8 @@ class Engine:
             if self.policy.note_command(record.exit_status or 0, relevant, record.command):
                 self._consider_unsolicited(Trigger.REPEATED_FAILURE)
             if relevant and record.exit_status == 0:
-                self._spawn(self.check(auto=True, run_code=True))
+                # Code runs only when the learner ran their program; `ls` or `cat` may still check files.
+                self._spawn(self.check(auto=True, run_code=self._runs_program(record.command)))
         elif t == "nvim.buffer_written":
             p = env.payload
             assert isinstance(p, NvimBufferWritten)
@@ -598,9 +610,29 @@ class Engine:
             ):
                 self._remind_tutor_pane()
             else:
-                lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+                # Only the end matters. Splitting the whole 16 KB tail per chunk was 94% of the CPU time.
+                lines = [ln.strip() for ln in text[-400:].splitlines() if ln.strip()]
                 if len(lines) >= 2 and lines[-1] == lines[-2] and re.fullmatch(r"[\w@.:~/() -]*[%$❯>]", lines[-1]):
                     self._remind_tutor_pane()
+
+    def _runs_program(self, command: str) -> bool:
+        """Did this command run the step's program (`./hello`, `python3 hello.py`)? `ls` or `cat` did not."""
+        lesson = self.lesson()
+        checks = lesson.verifier_params.get("checks", []) if lesson else []
+        sources = {os.path.normpath(str(c["source"])) for c in checks if c.get("type") == "program_output"}
+        if not sources:
+            return False
+        for part in re.split(r"&&|\|\||[;|]", command):
+            words = part.split()
+            while words and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", words[0]):
+                words = words[1:]  # VAR=value prefixes
+            if not words:
+                continue
+            if words[0].startswith("./"):
+                return True
+            if Path(words[0]).name.startswith("python") and any(os.path.normpath(w) in sources for w in words[1:]):
+                return True
+        return False
 
     def _remind_tutor_pane(self) -> None:
         if not self._pane_reminded:
@@ -855,6 +887,8 @@ class Engine:
         calls = await self.run_turn(
             trigger, learner_text=text, tools=[PLAN_TOOL], extra_trusted=extra, plan_budget=True
         )
+        if self._turn_was_stopped():
+            return None  # Esc or an error was already shown; do not add a second warning
         for attempt in range(2):
             problem = ""
             for call in calls:
@@ -970,6 +1004,10 @@ class Engine:
             calls = await self.run_turn(
                 Trigger.PREPARE_STEP, tools=[STEP_TOOL], extra_trusted=extra + notes, visible=False, plan_budget=True
             )
+            if self._turn_was_stopped():
+                if self.last_turn_status == "cancelled":
+                    self.ui.note("Stopped preparing this step. Say “next” when you want it.", "info")
+                return None  # Esc, a newer request, or an error: never quietly pay for another try
             problem = "you did not call prepare_step"
             for call in calls:
                 if call.name == "prepare_step":
@@ -985,8 +1023,15 @@ class Engine:
         self.ui.note("I could not prepare this step. Say “next” to try again.", "warn")
         return None
 
+    def _my_plan(self) -> PlanInfo | None:
+        """This session's subject. Never another window's: the global "active" plan may belong to it."""
+        if self.session.plan_id is None:
+            return self.plans.active()  # a session without a subject yet may adopt the one being studied
+        plan = self.plans.get(self.session.plan_id)
+        return plan if plan is not None and plan.status in ("active", "archived") else None
+
     async def start_step(self, *, reset: bool = False) -> Lesson | None:
-        plan = self.plans.active()
+        plan = self._my_plan()
         if plan is None:
             if self.session.phase == "plan_review":
                 self.ui.note("Reply **yes** to accept the proposed plan first, or tell me what to change.")
@@ -1019,7 +1064,7 @@ class Engine:
         return await self.start_lesson(lesson, reset=reset)
 
     async def skip_step(self) -> None:
-        plan = self.plans.active()
+        plan = self._my_plan()
         step = self.plans.current(plan) if plan else None
         if plan is None or step is None:
             self.ui.note("There is no current step to skip.")
@@ -1164,61 +1209,71 @@ class Engine:
             if not auto:
                 self._missing_answer(lesson)
             return None
-        verifier = get_verifier(lesson.verifier)
-        workdir = self.workspace_root / lesson.workdir
-        # “For this session” must cover every step of the subject, not only this step's folder.
-        code_scope = workdir.parent if lesson.track == "plan" else workdir
-        runner: HostRunner | None = None
-        if verifier.executes_learner_code or lesson.risk == "runs_learner_code":
-            if auto:
-                decision = self.permissions.check(Capability.RUN_LEARNER_CODE, code_scope)
-                if not (run_code and decision.allowed):
+        if auto and self._check_lock.locked():
+            return None  # one check at a time: the one already running covers this
+        stage_before = self.session.exercise_stage
+        async with self._check_lock:
+            verifier = get_verifier(lesson.verifier)
+            workdir = self.workspace_root / lesson.workdir
+            # “For this session” must cover every step of the subject, not only this step's folder.
+            code_scope = workdir.parent if lesson.track == "plan" else workdir
+            runner: HostRunner | None = None
+            if verifier.executes_learner_code or lesson.risk == "runs_learner_code":
+                if auto:
+                    decision = self.permissions.check(Capability.RUN_LEARNER_CODE, code_scope)
+                    if not (run_code and decision.allowed):
+                        return None
+                    self.permissions.consume(decision)
+                    ok = True
+                else:
+                    ok = await self._approve(
+                        Capability.RUN_LEARNER_CODE,
+                        code_scope,
+                        "Run your code to check it?",
+                        f"This check compiles (if needed) and runs the code in {code_scope} on this Mac, "
+                        "including starter files the tutor wrote. Read them first.\n"
+                        "Limits: 10 second timeout, CPU and file-size limits, a clean environment without API keys.\n"
+                        "It is host execution, NOT a sandbox: the code can do what your user account can do.\n\n"
+                        "Choose “for this session” and I will also check by myself each time you run your "
+                        "program (for example `./hello` or `python3 hello.py`).",
+                    )
+                if not ok:
                     return None
-                self.permissions.consume(decision)
-                ok = True
-            else:
-                ok = await self._approve(
-                    Capability.RUN_LEARNER_CODE,
-                    code_scope,
-                    "Run your code to check it?",
-                    "This check compiles (if needed) and runs YOUR code on this Mac.\n"
-                    "Limits: 10 second timeout, CPU and file-size limits, a clean environment without API keys.\n"
-                    "It is host execution, NOT a sandbox: the code can do what your user account can do.\n\n"
-                    "Choose “for this session” and I will also check by myself each time you run your program.",
-                )
-            if not ok:
-                return None
-            runner = HostRunner()
-        elif not self.permissions.check(Capability.RUN_CHECKS, workdir).allowed:
-            if auto:
-                return None
-            if not await self._approve(
-                Capability.RUN_CHECKS,
-                workdir,
-                "Run the checker?",
-                f"The checker reads files in {workdir} and your observed shell records.",
-            ):
-                return None
-        attempt = self.evidence.current_attempt(lesson.id) or self.evidence.start_attempt(
-            self.session_id, lesson, self.session.mode
-        )
-        ctx = VerifyContext(
-            workdir=workdir,
-            scope=self.scope,
-            state=self.state,
-            params={
-                **lesson.verifier_params,
-                "checks": [c for c in lesson.verifier_params.get("checks", []) if c.get("type") != "learner_answer"],
-            }
-            if concept_answer is not None
-            else lesson.verifier_params,
-            attempt_started_at=attempt.started_at,
-            answer=answer,
-            runner=runner,
-            telemetry_enabled=lesson.id in self.telemetry_enabled,
-            exercise_id=lesson.id,
-        )
-        result = await verifier.verify(ctx)
+                runner = HostRunner()
+            elif not self.permissions.check(Capability.RUN_CHECKS, workdir).allowed:
+                if auto:
+                    return None
+                if not await self._approve(
+                    Capability.RUN_CHECKS,
+                    workdir,
+                    "Run the checker?",
+                    f"The checker reads files in {workdir} and your observed shell records.",
+                ):
+                    return None
+            attempt = self.evidence.current_attempt(lesson.id) or self.evidence.start_attempt(
+                self.session_id, lesson, self.session.mode
+            )
+            ctx = VerifyContext(
+                workdir=workdir,
+                scope=self.scope,
+                state=self.state,
+                params={
+                    **lesson.verifier_params,
+                    "checks": [
+                        c for c in lesson.verifier_params.get("checks", []) if c.get("type") != "learner_answer"
+                    ],
+                }
+                if concept_answer is not None
+                else lesson.verifier_params,
+                attempt_started_at=attempt.started_at,
+                answer=answer,
+                runner=runner,
+                telemetry_enabled=lesson.id in self.telemetry_enabled,
+                exercise_id=lesson.id,
+            )
+            result = await verifier.verify(ctx)
+        if self.session.active_exercise != lesson.id or self.session.exercise_stage != stage_before:
+            return None  # the learner moved on while it ran: never apply an old result to a new step
         if auto and not result.passed:
             return result  # stay quiet; do not record a "failure" the learner did not ask for
         if result.needs_review:
@@ -1235,6 +1290,11 @@ class Engine:
             self._save_session()
         else:
             self._save_session()
+        if auto and self.inflight is not None and not self.inflight.task.done():
+            # Nobody asked for this check: never cut off the reply the learner is reading.
+            question = self.session.open_questions[0] if self.session.open_questions else ""
+            self.ui.note(f"✓ {result.summary()}" + (f"\n\n{question}" if question else ""), "success")
+            return result
         await self.run_turn(Trigger.VERIFICATION, verification=result)
         return result
 
@@ -1389,6 +1449,10 @@ class Engine:
             await fl.task
         return True
 
+    def _turn_was_stopped(self) -> bool:
+        """Right after ``run_turn``: was that turn cancelled (Esc), replaced by a newer one, or did it fail?"""
+        return self.last_turn_status not in ("complete", "stale", "cut_off")
+
     @staticmethod
     def _answer_questions(lesson: Lesson) -> list[str]:
         return [
@@ -1531,7 +1595,7 @@ class Engine:
             else:
                 await self._interpret_reply(lesson, said)
             return
-        if self.plans.active() is None:
+        if self._my_plan() is None:
             finished = self.plans.get(self.session.plan_id) if self.session.plan_id else None
             if finished is not None and finished.status == "completed":
                 await self.run_turn(Trigger.LEARNER_MESSAGE, learner_text=said)  # e.g. answering a last question
@@ -1635,35 +1699,18 @@ class Engine:
             if trigger in SOLICITED:
                 await self.cancel_turn("superseded", "replaced by your newer request")
             else:
+                self.last_turn_status = "skipped"
                 return []  # never overlap an unsolicited response
-        inputs = TurnInputs(
-            trigger=trigger,
-            mode=self.session.mode,
-            session_id=self.session_id,
+        inputs = self.turn_inputs(
+            trigger,
             learner_text=learner_text,
-            lesson=self.lesson(),
-            stage=self.session.exercise_stage,
             hint_level=hint_level if hint_level is not None else self.session.hint_level,
             hint_text=hint_text,
             verification=verification,
-            observation_allowed=not self.paused
-            and self.observing
-            and self.permissions.check(Capability.OBSERVE_TERMINAL).allowed,
-            exercise_dir=self.exercise_dir(),
-            goal=self.session.goal,
-            phase=self.session.phase,
-            plan_id=self.session.plan_id,
             extra_trusted=extra_trusted or [],
-            open_questions=list(self.session.open_questions),
         )
-        settings = self.config.provider_settings(self.provider.name)  # type: ignore[arg-type]
-        out_tokens = settings.plan_max_output_tokens if plan_budget else settings.max_output_tokens
-        out_tokens = max(out_tokens, MIN_REPLY_TOKENS)
-        ctx = self.assembler.build(
-            inputs,
-            max_context_tokens=max(settings.max_context_tokens, out_tokens + 4000),
-            max_output_tokens=out_tokens,
-        )
+        max_context, out_tokens = self.token_budget(plan_budget=plan_budget)
+        ctx = self.assembler.build(inputs, max_context_tokens=max_context, max_output_tokens=out_tokens)
         if learner_text and record_learner:
             self.sessions.add_message(self.session_id, "learner", learner_text, trigger=trigger.value)
         self.turn_counter += 1
@@ -1671,7 +1718,8 @@ class Engine:
         task = asyncio.create_task(
             self._turn(turn_id, trigger, inputs, ctx, tools=tools, out_tokens=out_tokens, visible=visible)
         )
-        self.inflight = InFlight(turn_id, trigger, ctx.revision, task)
+        mine = InFlight(turn_id, trigger, ctx.revision, task)
+        self.inflight = mine
         # The task's own last status update still counts it as running; refresh once it has really ended.
         task.add_done_callback(lambda _t: self.push_status())
         self.push_status()
@@ -1679,10 +1727,44 @@ class Engine:
             result_status = "cancelled"
             with contextlib.suppress(asyncio.CancelledError):
                 result_status = await task
-            # Textual uses eager tasks: _turn can finish before InFlight is assigned.
-            if self.inflight is not None and self.inflight.turn_id == turn_id:
-                self.inflight.result_status = result_status
+            if result_status == "cancelled":
+                result_status = mine.cancel_status  # "cancelled" (Esc), "superseded", or "withdrawn"
+            # Textual uses eager tasks: _turn can finish before InFlight is assigned, so record it on ours.
+            mine.result_status = result_status
+            self.last_turn_status = result_status  # read by the caller before anything else can run
         return self._turn_tools.pop(turn_id, [])
+
+    def turn_inputs(self, trigger: Trigger, **overrides: Any) -> TurnInputs:
+        """What a turn is built from. ``/context`` uses this too, so it shows what is really sent."""
+        values: dict[str, Any] = {
+            "trigger": trigger,
+            "mode": self.session.mode,
+            "session_id": self.session_id,
+            "lesson": self.lesson(),
+            "stage": self.session.exercise_stage,
+            "hint_level": self.session.hint_level,
+            # Plans and steps become trusted lesson data (including code that may run), so they are
+            # built from trusted input only, never from what the screen or files happen to show.
+            "observation_allowed": not self.paused
+            and self.observing
+            and trigger not in UNTRUSTED_FREE
+            and self.permissions.check(Capability.OBSERVE_TERMINAL).allowed,
+            "exercise_dir": self.exercise_dir(),
+            "goal": self.session.goal,
+            "phase": self.session.phase,
+            "plan_id": self.session.plan_id,
+            "open_questions": list(self.session.open_questions),
+        }
+        values.update(overrides)
+        return TurnInputs(**values)
+
+    def token_budget(self, *, plan_budget: bool = False) -> tuple[int, int]:
+        """(context limit, reply limit) for a turn."""
+        settings = self.config.provider_settings(self.provider.name)  # type: ignore[arg-type]
+        out_tokens = max(
+            settings.plan_max_output_tokens if plan_budget else settings.max_output_tokens, MIN_REPLY_TOKENS
+        )
+        return max(settings.max_context_tokens, out_tokens + 4000), out_tokens
 
     def _meta(self, inputs: TurnInputs, ctx: AssembledContext) -> TurnMeta:
         lesson = inputs.lesson
@@ -1697,8 +1779,8 @@ class Engine:
                 pane = next((p for p in self.state.panes.values() if p.tail or p.snapshot), None)
             if pane is not None:
                 text = pane.tail if pane.tail.strip() else "\n".join(pane.snapshot)
-                rows = [r for r in text.splitlines() if r.strip()]
-                error = redact_text("\n".join(rows[-4:])) if rows else None
+                rows = [r for r in redact_text(text).splitlines() if r.strip()]  # redact first, then cut
+                error = "\n".join(rows[-4:]) if rows else None
         return TurnMeta(
             trigger=inputs.trigger.value,
             learner_text=inputs.learner_text,
@@ -1833,8 +1915,14 @@ class Engine:
             )
             self.push_status()
             raise
-        except (ProviderError, TimeoutError) as exc:
-            err = exc if isinstance(exc, ProviderError) else ProviderError("timeout", "The tutor took too long.")
+        except Exception as exc:  # ANY failure must close the reply, or the pane says "Writing…" forever
+            if isinstance(exc, ProviderError):
+                err = exc
+            elif isinstance(exc, TimeoutError):
+                err = ProviderError("timeout", "The tutor took too long.")
+            else:
+                log.exception("tutor turn failed")
+                err = ProviderError("unavailable", f"The reply broke off ({type(exc).__name__}).")
             status = "error"
             note = err.user_message() + " Your workspace is untouched."
             if visible:

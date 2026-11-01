@@ -17,7 +17,7 @@ from the project folder.
 | `mentor profile [show\|confirm KEY\|all\|reject KEY\|set KEY TEXT\|remove KEY]` | Shows or edits your profile. |
 | `mentor memory [list\|search WORDS\|add TEXT\|confirm ID\|reject ID\|forget ID]` | Shows or edits remembered notes. |
 | `mentor export [--out FILE] [--include-events] [--no-transcripts]` | Exports your data as JSON. No API keys. |
-| `mentor delete-session SESSION [--with-evidence] [--yes]` | Deletes one session's observations, transcript, model suggestions, usage (and evidence if asked), then compacts the database. |
+| `mentor delete-session SESSION [--with-evidence] [--yes] [--force]` | Deletes one session's observations, transcript, model suggestions, usage (and evidence if asked), then compacts the database. Refuses while that session's Neovim is open or a command is running, unless `--force`. |
 | `mentor key set\|delete\|status anthropic\|openai` | Manages the API key in the macOS Keychain. The value is never printed. |
 | `mentor login` | Signs in with ChatGPT so the tutor uses your ChatGPT plan (no API key). Opens your browser; you sign in and allow CLI Mentor to use your plan. The sign-in is kept in the macOS Keychain and renews by itself. Manage usage at https://chatgpt.com/settings/usage. |
 | `mentor logout [--forget]` | Signs out of ChatGPT: asks OpenAI to end the sign-in, then removes it from the Keychain. `--forget` also forgets CLI Mentor's app registration, so the next `mentor login` can use a different ChatGPT account. |
@@ -102,7 +102,7 @@ The same table is shown by `/help`.
 |---|---|---|
 | Tutor pane | Enter | Send |
 | Tutor pane | Ctrl+J or Alt+Enter | New line in your message |
-| Tutor pane | Esc | Cancel the tutor's reply |
+| Tutor pane | Esc | Cancel the tutor's reply (one message is handled at a time: press Esc first to send a new one while it works) |
 | Tutor pane | Ctrl+Q | Quit menu (detach / end / cancel) |
 | Tutor pane | Page Up / Page Down | Scroll the conversation |
 | Question dialogs | the letter shown, or ↑ ↓ then Enter | Choose; Esc means "no" (or "cancel") |

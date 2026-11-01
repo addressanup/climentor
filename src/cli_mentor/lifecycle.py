@@ -8,6 +8,7 @@ default tmux server.
 from __future__ import annotations
 
 import os
+import re
 import shlex
 import shutil
 import sys
@@ -18,7 +19,7 @@ from pathlib import Path
 from .config import Config
 from .observe.ipc import new_token
 from .observe.shell import prepare_zdotdir, shell_environment
-from .paths import AppPaths, ensure_private_dir, write_private_file
+from .paths import AppPaths, ensure_private_dir, session_key, write_private_file
 from .tmuxutil import DEFAULT_SOCKET, Tmux, TmuxError
 from .ui.theme import accent_name, terminal_is_light
 
@@ -112,6 +113,17 @@ def _without_secrets(command: str) -> str:
     return f"env {unset} {command}"
 
 
+def _hide_secrets(tmux: Tmux, session: str, *, hidden: bool = True) -> None:
+    """New windows and panes in our session must not inherit API keys from the tmux server.
+
+    The tmux server copies its environment from the shell that started it. ``-r`` removes a
+    variable for every process started in this session afterwards; the running tutor keeps its own.
+    Values never appear on a command line.
+    """
+    for var in SECRET_ENV:
+        tmux.run("set-environment", "-t", f"={session}", "-r" if hidden else "-u", var, check=False)
+
+
 def ensure_token(paths: AppPaths, session_id: str) -> Path:
     run_dir = paths.session_runtime_dir(session_id)
     token_file = run_dir / "token"
@@ -124,6 +136,15 @@ def _set_role(tmux: Tmux, pane: str, role: str) -> None:
     """Tag a pane with its role (used to find it again) and the label shown on its border."""
     tmux.run("set-option", "-p", "-t", pane, "@mentor_role", role)
     tmux.run("set-option", "-p", "-t", pane, "@mentor_label", PANE_LABELS[role])
+
+
+def editor_command(nvim_bin: str) -> str:
+    """Neovim with our session plugin. The plugin folder comes from $CLI_MENTOR_NVIM_RTP and is added
+    from Lua: `set rtp^=<path>` breaks when the path has a space (for example "My Projects")."""
+    return (
+        f"{shlex.quote(nvim_bin)} --cmd {shlex.quote('lua vim.opt.rtp:prepend(vim.env.CLI_MENTOR_NVIM_RTP)')} "
+        f"--cmd {shlex.quote('lua require([[cli_mentor]]).start()')}"
+    )
 
 
 def tutor_command(session_id: str) -> str:
@@ -165,14 +186,15 @@ def create_workspace(
         nvim_rtp=plugin_dir(),
         user_zdotdir=os.environ.get("ZDOTDIR"),
     )
-    editor_env = {"CLI_MENTOR_SOCK": str(sock), "CLI_MENTOR_TOKEN_FILE": str(token_file)}
+    editor_env = {
+        "CLI_MENTOR_SOCK": str(sock),
+        "CLI_MENTOR_TOKEN_FILE": str(token_file),
+        "CLI_MENTOR_NVIM_RTP": str(plugin_dir()),
+    }
     tutor_env = {k: os.environ[k] for k in PASSTHROUGH_ENV if k in os.environ}
     tutor_env["CLI_MENTOR_TMUX_SOCKET"] = tmux.socket_name
     tutor_env["CLI_MENTOR_TMUX_CONF"] = tmux.config_file or ""
-    nvim_cmd = (
-        f"{shlex.quote(nvim_bin)} --cmd {shlex.quote('set rtp^=' + str(plugin_dir()))} "
-        f"--cmd {shlex.quote('lua require([[cli_mentor]]).start()')}"
-    )
+    nvim_cmd = editor_command(nvim_bin)
     created = False
     try:
         tmux.run(
@@ -190,6 +212,7 @@ def create_workspace(
             tutor_command(session_id),
         )
         created = True
+        _hide_secrets(tmux, name)
         tutor = tmux.panes(name)[0].pane_id
         _set_role(tmux, tutor, "tutor")
         tmux.run("set-option", "-p", "-t", tutor, "remain-on-exit", "on")
@@ -241,7 +264,11 @@ def repair_tutor(paths: AppPaths, session_id: str) -> bool:
     name = tmux_session_name(session_id)
     for pane in tmux.panes(name):
         if pane.role == "tutor" and pane.dead:
-            tmux.run("respawn-pane", "-k", "-t", pane.pane_id, tutor_command(session_id))
+            _hide_secrets(tmux, name, hidden=False)  # the restarted tutor may need a key from the environment
+            try:
+                tmux.run("respawn-pane", "-k", "-t", pane.pane_id, tutor_command(session_id))
+            finally:
+                _hide_secrets(tmux, name)
             return True
     return False
 
@@ -264,8 +291,11 @@ def attach(paths: AppPaths, session_id: str, nested: bool = False) -> int:  # re
 
 def editor_busy(paths: AppPaths, session_id: str) -> list[str]:
     tmux = make_tmux(paths)
-    out = []
-    for pane in tmux.panes(tmux_session_name(session_id)):
+    out: list[str] = []
+    name = tmux_session_name(session_id)
+    if not tmux.has_session(name):
+        return out  # nothing is open, so nothing can be lost
+    for pane in tmux.panes(name):
         if pane.role == "editor" and pane.current_command in ("nvim", "vim"):
             out.append("Neovim is still open (unsaved changes would be lost)")
         if pane.role == "shell" and pane.current_command not in ("zsh", "-zsh", "bash", "sh", ""):
@@ -282,6 +312,22 @@ def stop_workspace(paths: AppPaths, session_id: str) -> bool:
     return True
 
 
+# What a session's runtime folder may hold. Anything else means the folder is not ours to delete.
+_SESSION_FILES = frozenset({"ipc.sock", "token", "zdotdir"})
+# session_key() names, plus the older "YYYYMMDD-HHM" names.
+_SESSION_DIR_NAME = re.compile(r"[0-9a-f]{12}|\d{8}-\d{3}")
+
+
+def is_session_runtime_dir(path: Path) -> bool:
+    """True only for a folder that looks exactly like one we made for a session."""
+    if _SESSION_DIR_NAME.fullmatch(path.name) is None:
+        return False
+    try:
+        return {p.name for p in path.iterdir()} <= _SESSION_FILES
+    except OSError:
+        return False
+
+
 def cleanup_stale_runtime(paths: AppPaths, live_session_ids: set[str]) -> list[Path]:
     """Remove runtime folders of sessions whose tmux session is gone. Ours only."""
     removed: list[Path] = []
@@ -289,11 +335,11 @@ def cleanup_stale_runtime(paths: AppPaths, live_session_ids: set[str]) -> list[P
         return removed
     tmux = make_tmux(paths)
     live_names = set(tmux.sessions())
-    keep = {sid[:12] for sid in live_session_ids if tmux_session_name(sid) in live_names}
+    keep = {session_key(sid) for sid in live_session_ids if tmux_session_name(sid) in live_names}
     for child in paths.runtime_dir.iterdir():
         if not child.is_dir() or child.is_symlink() or child.stat().st_uid != os.getuid():
             continue
-        if child.name in keep:
+        if child.name in keep or not is_session_runtime_dir(child):
             continue
         sock = child / "ipc.sock"
         if sock.exists():

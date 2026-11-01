@@ -66,6 +66,7 @@ reply **yes** to start. The header always shows the subject, the step you are
 on. Teaching stages stay in the background. `/tour` shows the tour again.
 While the tutor works, the last line says "Thinking…" or "Writing…" with the
 seconds so far; when that line goes, the reply is complete. Esc stops a reply.
+The tutor handles one message at a time: to send something new while it works, press Esc first.
 Each subject gets its own folder and conversation. Next time, `mentor start`
 asks which subject to continue (or start a new one); `mentor subjects` lists them.
 Move between panes with **Ctrl+b** then an arrow key. Quit with **Ctrl+Q**.
@@ -74,8 +75,13 @@ Learning plans need a real AI model: your ChatGPT plan or your own API key.
 `uv run mentor demo` shows the program with an offline **mock** tutor, but the
 mock cannot design plans.
 
-Optional: put `mentor` on your PATH with `uv tool install --editable .`
-(this writes to `~/.local/bin`).
+Optional: put `mentor` on your PATH (this writes to `~/.local/bin`). Install it with the
+exact versions from the lock file; a plain `uv tool install` ignores `uv.lock`:
+
+```sh
+uv export --frozen --no-dev --no-emit-project --no-hashes -o /tmp/cli-mentor-constraints.txt
+uv tool install --editable . --constraints /tmp/cli-mentor-constraints.txt
+```
 
 ### Using your ChatGPT plan (no API key)
 
