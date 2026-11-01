@@ -3,13 +3,16 @@
 Last updated: 2026-11-01
 
 Public repository: https://github.com/addressanup/climentor (`origin`, default branch `main`).
-The first GitHub CI run has started; its result is not yet verified:
-https://github.com/addressanup/climentor/actions/runs/40162492577
+GitHub CI is verified: the run for pull request #1 passed on 2026-11-01 (macOS: lint, strict mypy,
+269 tests passed; Linux, experimental: 248 unit tests passed):
+https://github.com/addressanup/climentor/actions/runs/41271272451
 
-## Pre-launch review fixes (branch `fix/review-findings`, 2026-11-01)
+## Pre-launch review fixes (merged to `main`, 2026-11-01)
 
 A code review found 19 problems. Each was first reproduced with a throwaway script in temp folders
-(fake keyring, private tmux sockets), then fixed, then covered by a regression test. Not committed yet.
+(fake keyring, private tmux sockets), then fixed, then covered by a regression test. Commit `fc5026c`,
+merged through pull request #1 (https://github.com/addressanup/climentor/pull/1) as `5457cdb` after
+GitHub CI passed.
 
 - Data loss: an explicit `CLI_MENTOR_RUNTIME_DIR` is now used through its own `cm` subfolder, and
   cleanup deletes only folders that are exactly a session runtime folder (name and contents).
@@ -75,7 +78,7 @@ Silicon). What is done and what is planned: `docs/FEATURES.md`.
 - Phase 3: profile, evidence, skill states, review schedule, resume,
   3 exercises per track — done.
 - Phase 4: permissions, privacy/deletion, backpressure, stale-advice handling,
-  recovery, end-to-end tests, CI file, docs — done (first GitHub CI run in progress).
+  recovery, end-to-end tests, CI file, docs — done (GitHub CI verified on 2026-11-01).
 
 ## Environment used
 - macOS 27.0.1, Apple Silicon (arm64)
@@ -253,8 +256,8 @@ the first three steps of a C++ plan, with DeepSeek (see the real-model test abov
 ## Known limits / not done
 - Live provider calls: DeepSeek (OpenAI-compatible `base_url`) tested end to end; Anthropic, OpenAI itself
   and the ChatGPT plan not yet (no key or sign-in here). SDK code paths are tested offline.
-- Linux: not verified; CI Linux job is marked experimental.
-- GitHub CI has started; a successful hosted run has not yet been verified.
+- Linux: only the unit tests run there (they pass in CI); integration and end-to-end tests and real use on
+  Linux are not verified. The CI Linux job is marked experimental.
 - zsh only; REPL input is not observable.
 - Learner code runs on the host (limits, not a sandbox).
 - Git/PostgreSQL/debugging/other-language tracks: extension routes only.
@@ -264,5 +267,6 @@ the first three steps of a C++ plan, with DeepSeek (see the real-model test abov
 1. Run a live test with your key:
    `CLI_MENTOR_LIVE_ANTHROPIC_KEY=... CLI_MENTOR_LIVE_ANTHROPIC_MODEL=<id> uv run pytest -m live`
 2. Try a real session: `uv run mentor init` (choose your provider), then `uv run mentor start`.
-3. Check the first GitHub CI run.
+3. Finish the review items still open (config migrations, CI actions pinned by commit, the
+   session-count query per turn, Keychain reads per ChatGPT request).
 4. Expand conversational transfer reviews, add a Git track, and age-based log cleanup.
